@@ -1,3 +1,4 @@
+import {createConnections} from './lib/connections.mjs';
 import {importLibrary,updateLibraryDescriptions} from './lib/library.mjs';
 import {importInstagramMedia,instagramMediaPacket} from './lib/instagram-media.mjs';
 import {withInstagramSession} from './lib/instagram-session.mjs';
@@ -43,7 +44,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault});
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault,beforeReplace:user=>{assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db);
+ function assertAccountChange(user){if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const getKey=userId=>{const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
  const findMedia=(id,userId)=>db.prepare("SELECT * FROM media WHERE id=? AND user_id IN (?, 'library')").get(id,userId);
@@ -59,7 +61,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const characters=db.prepare("SELECT * FROM characters WHERE user_id IN (?, 'library') AND deleted=0 ORDER BY name").all(user.id).map(c=>({...c,images:JSON.parse(c.images),labels:JSON.parse(c.labels),favorite:favorite(user.id,'character',c.id)||user.id==='local-owner'&&!!c.favorite}));
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(j=>({...j,outputs:JSON.parse(j.outputs),meta:JSON.parse(j.meta),favorite:favorite(user.id,'job',j.id)||user.id==='local-owner'&&!!j.favorite}));
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
-  return {testMode,mcp:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
+  return {testMode,connections:connections.list(user.id),mcp:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
  }
 
  function mcpInput(c,v,prompt,withoutProject=false){
@@ -219,24 +221,29 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:64*1024);
     if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
     if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
-    if(path==='/api/mcp/connect'){json(res,200,await mcp.start(user.id,origin));return;}
+    if(path==='/api/connections/select'){assertAccountChange(user.id);const result=connections.select(user.id,String(b.id));json(res,200,result);return;}
+    if(path==='/api/mcp/connect'){assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');json(res,200,await mcp.start(user.id,origin,b.label));return;}
+    if(path==='/api/mcp/cancel'){mcp.cancelPending(user.id);json(res,200,{ok:true});return;}
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
-    if(path==='/api/mcp/disconnect'){if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);json(res,200,{ok:true});return;}
+    if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
     if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true)));return;}
     if(path==='/api/provider/connect'){
+     assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id).n)throw Error('Aguarde ou resolva a fila antes de trocar a chave.');
      // Verification is a read-only API call; no generation is submitted.
      const check=createProvider(()=>b.key.trim());
      if(!customProvider)await check('/models/higgsfield/genjutsu/restyle/v1.0/presets');
      else await customProvider('/models/higgsfield/genjutsu/restyle/v1.0/presets','GET',undefined,{key:b.key});
+     assertAccountChange(user.id);connections.capture(user.id,'api');
      db.prepare('INSERT INTO settings VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET credential=excluded.credential,verified=excluded.verified').run(user.id,vault.encrypt(b.key.trim()),new Date().toISOString());
+     connections.save(user.id,'api',b.label||'Conta Higgsfield');
      json(res,200,{ok:true,message:'Chave validada e armazenada. Acesso aos modelos e saldo seguem o provedor.'});return;
     }
-    if(path==='/api/provider/disconnect'){
+    if(path==='/api/provider/disconnect'){assertAccountChange(user.id);
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id).n)throw Error('Há solicitações pendentes. Resolva a fila antes de desconectar.');
-     db.prepare('DELETE FROM settings WHERE user_id=?').run(user.id);json(res,200,{ok:true});return;
+     db.prepare('DELETE FROM settings WHERE user_id=?').run(user.id);connections.disconnect(user.id,'api');json(res,200,{ok:true});return;
     }
     if(path==='/api/provider/verify'){await call(user.id,'/models/higgsfield/genjutsu/restyle/v1.0/presets');db.prepare('UPDATE settings SET verified=? WHERE user_id=?').run(new Date().toISOString(),user.id);json(res,200,{ok:true});return;}
     if(path==='/api/characters'){
@@ -305,6 +312,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/generate'){
      const transport=b.transport||'api';if(!['api','mcp'].includes(transport))throw Error('Conexão inválida.');
+     if(transport==='mcp'&&mcp.state(user.id).pending)throw Error('Conclua ou cancele a troca de conta MCP antes de gerar.');
      if(transport==='api'&&!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
      if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
