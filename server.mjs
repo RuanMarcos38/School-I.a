@@ -1,4 +1,5 @@
 import {importLibrary,updateLibraryDescriptions} from './lib/library.mjs';
+import {importInstagramMedia,instagramMediaPacket} from './lib/instagram-media.mjs';
 import {withInstagramSession} from './lib/instagram-session.mjs';
 import {videoPrompt} from './lib/realism.mjs';
 import http from 'node:http';
@@ -276,6 +277,17 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      if(favorite(user.id,kind,b.id))db.prepare('DELETE FROM favorites WHERE user_id=? AND kind=? AND target=?').run(user.id,kind,b.id);
      else db.prepare('INSERT INTO favorites VALUES(?,?,?)').run(user.id,kind,b.id);
      json(res,200,{ok:true});return;
+    }
+    if(path==='/api/import-instagram-media'){
+     const packet=instagramMediaPacket(b),temp=join(dataDir,'processing',randomUUID()+'.mp4');
+     try{
+      const info=await importInstagramMedia(b,temp);
+      if(statSync(temp).size>300*1024*1024)throw Error('Vídeo excede 300 MB.');
+      const media=saveMedia(temp,info,user.id);
+      db.prepare('INSERT INTO imported_links(user_id,url,media_id) VALUES(?,?,?) ON CONFLICT(user_id,url) DO UPDATE SET media_id=excluded.media_id').run(user.id,packet.url,media.id);
+      json(res,201,media);
+     }finally{try{unlinkSync(temp);}catch{}}
+     return;
     }
     if(path==='/api/import-link'||path==='/api/import-instagram-session'){
      const link=new URL(socialURL(String(b.url||'')));link.search='';link.hash='';
