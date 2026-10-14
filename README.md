@@ -1,5 +1,5 @@
 # School IA · instalação local
-Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A conexão de geração real está **pendente de uma chave da API Higgsfield**. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
+Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A chave Higgsfield foi criada com autorização e conectada nesta instalação. A autenticação foi validada, mas a conta de API está com saldo US$ 0,00; a geração real ainda não foi testada. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
 
 ## Abrir
 Nesta máquina, o serviço já foi iniciado. Para reiniciar:
@@ -53,7 +53,7 @@ No Chrome da instalação principal: upload e gravação de imagem, leitura do p
 Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 
 ## Diferenças e pendências
-- Geração real bloqueada pela ausência da chave da API e de um orçamento autorizado para testes pagos.
+- Geração real bloqueada pelo saldo US$ 0,00 da conta de API e pela ausência de um orçamento autorizado para testes pagos.
 - Hospedagem pública, domínio e pagamento não configurados.
 - Não há cobrança de R$49,90 nem promessa de três gerações grátis; essas regras pertencem ao negócio do original.
 - A conexão da assinatura usada pelo original não foi recuperada; esta implementação usa a API oficial.

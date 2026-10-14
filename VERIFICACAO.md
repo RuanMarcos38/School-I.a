@@ -1,5 +1,5 @@
 # Verificação da instalação
-A instalação principal usa dados reais locais e não tem chave Higgsfield configurada. O teste não comprova funcionamento 100% das integrações externas.
+A instalação principal usa dados reais locais e tem uma chave Higgsfield conectada e validada. A credencial foi criada com autorização do usuário e armazenada cifrada no backend; não foi incluída no GitHub. O teste não comprova funcionamento 100% das integrações externas.
 
 ## Testes automatizados: 9 aprovados
 1. Biblioteca própria, arquivos reais, favoritos, pastas, capas, arquivamento e persistência após reiniciar.
@@ -28,7 +28,7 @@ O domínio oficial Higgsfield respondeu HTTP 401 a uma consulta sem credencial. 
 FFmpeg, FFprobe, Sharp e yt-dlp estão instalados nesta máquina. O executável yt-dlp foi conferido contra SHA2-256SUMS da versão oficial.
 
 ## Pendente para encerrar a entrega como integrada
-- Conectar chave real pelo campo seguro.
+- Chave real conectada: autenticação confirmada por consulta ao catálogo oficial.
 - Confirmar acesso da conta aos modelos Object Swap e Flare.
 - Definir limite de gasto e executar um teste real de imagem / vista / vídeo.
 - Testar o importador com um link público real fornecido para esse fim.
@@ -37,3 +37,7 @@ FFmpeg, FFprobe, Sharp e yt-dlp estão instalados nesta máquina. O executável 
 
 A geração real, a publicação e os serviços internos do original não foram validados.
 
+
+## Atualização da conexão
+Conta de API inicializada no console oficial. Chave School-IA-local criada com confirmação específica e conectada ao backend. Saldo observado: US$ 0,00. Nenhuma recarga ou geração paga realizada.
+O catálogo do conector contém gpt_image_2_5, variantes Flare e Sunburst; o endpoint Flare é documentado como GPT Image 2.5. Isso confirma a família do modelo, mas não demonstra equivalência do prompt interno ou dos resultados do original.
