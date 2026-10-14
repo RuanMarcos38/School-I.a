@@ -214,3 +214,14 @@ test('app instalável tem recursos públicos válidos sem expor dados privados',
   const sw=await a.get('/sw.js');assert.equal(sw.status,200);assert.match(sw.headers.get('content-type'),/javascript/);assert.equal((await a.get('/api/state')).status,401);
  }finally{await a.close();}
 });
+test('authenticated Instagram import removes session and reuses the same link for its owner',async()=>{
+ let calls=0,cookiePath;
+ const a=await instance({importer:async(raw,path,root,options)=>{calls++;cookiePath=options?.cookieFile;assert.ok(cookiePath);assert.match(readFileSync(cookiePath,'utf8'),/synthetic-session/);copyFileSync(short,path);return inspectMedia(path,'video/mp4');}});
+ try{
+  const cookies=[{domain:'.instagram.com',name:'sessionid',value:'synthetic-session',secure:true,httpOnly:true,path:'/',session:true}];
+  assert.equal((await a.post('import-instagram-session',{url:'https://www.tiktok.com/x',cookies})).status,400);assert.equal(calls,0);
+  const r=await a.post('import-instagram-session',{url:'https://www.instagram.com/p/DeBwwYiIO-F/',cookies});assert.equal(r.status,201,await r.clone().text());const imported=await r.json();assert.equal(existsSync(cookiePath),false);assert.ok(!JSON.stringify(imported).includes('synthetic-session'));
+  const again=await a.post('import-link',{url:'https://instagram.com/reel/DeBwwYiIO-F/?igsh=abc'});assert.equal(again.status,200);const cached=await again.json();assert.equal(cached.id,imported.id);assert.equal(cached.cached,true);assert.equal(calls,1);assert.equal((await a.get(cached.url+'?download=1')).status,200);
+  assert.equal(a.server.school.db.prepare('SELECT COUNT(*) AS n FROM imported_links').get().n,1);
+ }finally{await a.close();}
+});

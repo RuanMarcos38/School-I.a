@@ -1,3 +1,4 @@
+import {withInstagramSession} from './lib/instagram-session.mjs';
 import {videoPrompt} from './lib/realism.mjs';
 import http from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
@@ -9,7 +10,7 @@ import {createVault} from './lib/vault.mjs';
 import {createAuth} from './lib/auth.mjs';
 import {createMcpGateway} from './lib/mcp.mjs';
 import {createProvider,VIDEO_MODEL,IMAGE_MODEL,characterPrompt,viewPrompt,views,imageSettings} from './lib/provider.mjs';
-import {types,toolsReady,inspectMedia,receiveMedia,downloadMedia,streamMedia,splitVideo,concatenate,importSocial} from './lib/media.mjs';
+import {types,toolsReady,inspectMedia,receiveMedia,downloadMedia,streamMedia,splitVideo,concatenate,importSocial,socialURL} from './lib/media.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const active=['uploading','submitting','queued','in_progress','assembling','uncertain'];
 const terminal=['completed','failed','nsfw','canceled'];
@@ -17,6 +18,7 @@ function error(message,status=400){const e=Error(message);e.status=status;return
 export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
  mkdirSync(join(dataDir,'media'),{recursive:true});mkdirSync(join(dataDir,'processing'),{recursive:true});
  const db=new DatabaseSync(join(dataDir,'school.sqlite'));
+ db.exec('CREATE TABLE IF NOT EXISTS imported_links(user_id TEXT,url TEXT,media_id TEXT,PRIMARY KEY(user_id,url));');
  db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS characters(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,folder TEXT NOT NULL DEFAULT '',favorite INTEGER NOT NULL DEFAULT 0,images TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS media(id TEXT PRIMARY KEY,type TEXT NOT NULL,size INTEGER NOT NULL,duration REAL NOT NULL DEFAULT 0);
@@ -182,7 +184,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
-  const publicGet=req.method==='GET'&&['/','/app.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png'].includes(String(req.url||'').split('?')[0]);
+  const publicGet=req.method==='GET'&&['/','/app.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
   const oauthCallback=req.method==='GET'&&String(req.url||'').split('?')[0]==='/api/mcp/callback';
   if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback)){json(res,403,{error:'Origem não autorizada.'});return;}
   if(!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
@@ -191,8 +193,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
-   const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png'};
-   if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
+   const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
+   if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.zip')?'application/zip':path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
    if(path==='/api/mcp/catalog'&&req.method==='GET'){json(res,200,await mcp.catalog(user.id));return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
@@ -272,10 +274,18 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      else db.prepare('INSERT INTO favorites VALUES(?,?,?)').run(user.id,kind,b.id);
      json(res,200,{ok:true});return;
     }
-    if(path==='/api/import-link'){
+    if(path==='/api/import-link'||path==='/api/import-instagram-session'){
+     const link=new URL(socialURL(String(b.url||'')));link.search='';link.hash='';
+     if(path==='/api/import-instagram-session'&&!['instagram.com','www.instagram.com'].includes(link.hostname))throw Error('A sessão só pode ser usada para links Instagram.');
+     const canonical=link.hostname.includes('instagram.com')&&/^\/(?:p|reel|reels)\/[-_a-zA-Z0-9]+\/?$/.test(link.pathname)?'https://www.instagram.com/p/'+link.pathname.split('/')[2]+'/':link.href;
+     const cached=db.prepare('SELECT media_id FROM imported_links WHERE user_id=? AND url=?').get(user.id,canonical);
+     if(cached){const media=findMedia(cached.media_id,user.id);if(media&&existsSync(join(dataDir,'media',media.id))){json(res,200,{...media,url:'/media/'+media.id,cached:true});return;}}
      const temp=join(dataDir,'processing',randomUUID()+'.mp4');
-     try{const info=await importer(String(b.url||''),temp,root);if(statSync(temp).size>300*1024*1024)throw Error('Vídeo excede 300 MB.');json(res,201,saveMedia(temp,info,user.id));}
-     finally{try{unlinkSync(temp);}catch{}}
+     try{
+      const info=path==='/api/import-instagram-session'?await withInstagramSession(b.cookies,cookieFile=>importer(canonical,temp,root,{cookieFile})):await importer(canonical,temp,root);
+      if(statSync(temp).size>300*1024*1024)throw Error('Vídeo excede 300 MB.');
+      const media=saveMedia(temp,info,user.id);db.prepare('INSERT INTO imported_links(user_id,url,media_id) VALUES(?,?,?) ON CONFLICT(user_id,url) DO UPDATE SET media_id=excluded.media_id').run(user.id,canonical,media.id);json(res,201,media);
+     }finally{try{unlinkSync(temp);}catch{}}
      return;
     }
     if(path==='/api/generate'){
