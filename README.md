@@ -1,5 +1,5 @@
 # School IA · instalação local
-Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A chave Higgsfield foi criada com autorização e conectada nesta instalação. A autenticação foi validada, mas a conta de API está com saldo US$ 0,00; a geração real ainda não foi testada. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
+Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A chave Higgsfield foi criada com autorização e conectada nesta instalação. A autenticação foi validada e uma recarga de US$10 foi concluída com autorização. Um card e duas vistas foram gerados pela API real e salvos na biblioteca. O vídeo de quatro segundos foi enviado, mas recusado pelo provedor (nsfw), sem resultado; a cobrança foi estornada. Saldo observado após os testes: US$9,77. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
 
 ## Abrir
 Nesta máquina, o serviço já foi iniciado. Para reiniciar:
@@ -26,8 +26,8 @@ Também é possível abrir start.cmd. Node 24 ou superior é necessário.
 ## Conectar geração real
 Abra Configurações → Conectar chave da API e cole a chave completa do console https://open.higgsfield.ai/api-keys. A consulta de validação não gera mídia.
 A chave não deve ser enviada no chat. A sessão da escola e o saldo da assinatura não são credenciais da API.
-A validação da chave consulta o catálogo Restyle. Isso confirma essa operação; o teste real de Object Swap / Flare continua necessário para confirmar acesso aos dois modelos.
-Gerações são cobradas pelo provedor. Não foi executada nenhuma geração paga nesta entrega.
+A validação da chave consulta o catálogo Restyle. Isso confirma essa operação. Flare foi confirmado com três imagens reais; Object Swap foi acessado, mas sua geração bem-sucedida ainda precisa ser validada.
+Gerações são cobradas pelo provedor. Foram executadas três gerações reais de imagem, dentro do limite autorizado de US$10.
 
 ## Instalar em outra máquina Windows
 ```powershell
@@ -53,14 +53,14 @@ No Chrome da instalação principal: upload e gravação de imagem, leitura do p
 Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 
 ## Diferenças e pendências
-- Geração real bloqueada pelo saldo US$ 0,00 da conta de API e pela ausência de um orçamento autorizado para testes pagos.
+- Flare confirmado com um card e duas vistas reais. Object Swap ainda depende do teste de vídeo de quatro segundos.
 - Hospedagem pública, domínio e pagamento não configurados.
 - Não há cobrança de R$49,90 nem promessa de três gerações grátis; essas regras pertencem ao negócio do original.
 - A conexão da assinatura usada pelo original não foi recuperada; esta implementação usa a API oficial.
 - O prompt de card desta versão foi escrito para o estilo observado e não é o prompt interno do original.
 - GPT Image 2.5 Flare é a variante documentada da API; equivalência com o modelo privado rotulado GPT Image 2.5 no original não foi demonstrada.
 - Imagens da biblioteca são as prévias acessíveis na página, não os arquivos originais de alta resolução.
-- Importação depende de links públicos e das restrições das plataformas. Nenhum link real TikTok / Instagram foi validado no teste final.
+- Importação depende de links públicos e das restrições das plataformas. O link Instagram fornecido foi importado e validado com sucesso após corrigir o filtro de duração ausente nos metadados.
 - IA pode mudar identidade, áudio, movimento e continuidade entre partes. Não existe garantia de preservação perfeita.
 - Créditos, preços e cobranças são do provedor; não há saldo simulado.
 - Não foi recuperado o código-fonte ou backend da escola.
@@ -70,4 +70,7 @@ Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 - https://open.higgsfield.ai/models/higgsfield/genjutsu/object-swap/v1.0/playground
 - https://open.higgsfield.ai/models/marketing-studio/image/flare/api-reference
 - https://docs.higgsfield.ai/docs/llms.txt
+
+
+
 

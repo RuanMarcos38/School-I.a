@@ -23,5 +23,8 @@ Não foram demonstrados variante, qualidade, resolução e possíveis etapas adi
 5. Examinar continuidade entre partes antes de aprovar vídeos longos.
 6. Guardar parâmetros, referências e resultados usados na comparação. Alterar parâmetros só a partir da diferença observada.
 
-A conta de API está com saldo US$ 0,00. Esses testes não foram executados e dependem de saldo e limite de gasto autorizado. A autenticação já foi validada sem gerar mídia.
+A recarga de US$10 foi autorizada e concluída. Um card e duas vistas (perfil e costas) foram gerados e examinados. Pele, cabelo, tecido e anatomia apresentam aparência fotográfica; cabelo, roupa e cores se mantêm nas três referências. A inspeção visual não demonstra identidade perfeita nem equivalência ao original. Vídeo com movimento e comparação com o mesmo prompt no original continuam pendentes.
+
+
+O teste de vídeo autorizado foi recusado pelo filtro do provedor (nsfw), sem resultado. A cobrança foi estornada. Não é possível avaliar identidade em movimento, áudio ou cenário a partir desse teste.
 

@@ -29,15 +29,20 @@ FFmpeg, FFprobe, Sharp e yt-dlp estão instalados nesta máquina. O executável 
 
 ## Pendente para encerrar a entrega como integrada
 - Chave real conectada: autenticação confirmada por consulta ao catálogo oficial.
-- Confirmar acesso da conta aos modelos Object Swap e Flare.
-- Definir limite de gasto e executar um teste real de imagem / vista / vídeo.
-- Testar o importador com um link público real fornecido para esse fim.
+- Flare confirmado por três gerações reais; Object Swap ainda pendente.
+- Limite autorizado de US$10 e recarga concluída. Card, perfil e costas concluídos; vídeo pendente.
+- Importador testado com o link Instagram fornecido: arquivo real salvo em 1080×1920, duração medida 13,725 s. Corrigido filtro que rejeitava duração ausente nos metadados; validação real de 4–60 s mantida.
 - Selecionar hospedagem e domínio se houver necessidade de acesso pela internet.
 - Confirmar quais regras de cobrança devem pertencer à nova operação.
 
-A geração real, a publicação e os serviços internos do original não foram validados.
+A geração real de imagem foi validada. Vídeo, publicação e serviços internos do original não foram validados.
 
 
 ## Atualização da conexão
-Conta de API inicializada no console oficial. Chave School-IA-local criada com confirmação específica e conectada ao backend. Saldo observado: US$ 0,00. Nenhuma recarga ou geração paga realizada.
+Conta de API inicializada no console oficial. Chave School-IA-local criada com confirmação específica e conectada ao backend. Recarga de US$10 confirmada no console oficial. Três imagens reais concluídas e persistidas, em 1744 × 2336 pixels. Saldo após os três testes de imagem: US$9,77; gasto líquido US$0,23.
 O catálogo do conector contém gpt_image_2_5, variantes Flare e Sunburst; o endpoint Flare é documentado como GPT Image 2.5. Isso confirma a família do modelo, mas não demonstra equivalência do prompt interno ou dos resultados do original.
+
+## Teste real de vídeo em 14/10/2026
+Um trecho de quatro segundos do link Instagram fornecido foi validado, enviado e acompanhado pela API Genjutsu Object Swap. A resposta final foi nsfw, sem mídia de saída. Cobrança de US$5,55 estornada integralmente pelo provedor; saldo final observado US$9,77. Não houve reenvio nem alteração do conteúdo para contornar a recusa. A geração bem-sucedida de vídeo e sua qualidade visual continuam pendentes.
+
+
