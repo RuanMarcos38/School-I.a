@@ -1,7 +1,7 @@
 # Verificação da instalação
 A instalação principal usa dados reais locais e tem uma chave Higgsfield conectada e validada. A credencial foi criada com autorização do usuário e armazenada cifrada no backend; não foi incluída no GitHub. O teste não comprova funcionamento 100% das integrações externas.
 
-## Testes automatizados: 9 aprovados
+## Testes automatizados: 10 aprovados
 1. Biblioteca própria, arquivos reais, favoritos, pastas, capas, arquivamento e persistência após reiniciar.
 2. Bloqueio de origem / Host inválidos, imagem com conteúdo falso e geração sem chave.
 3. Validação antes de armazenar credencial, cifra no banco e omissão no estado enviado ao navegador.
@@ -10,7 +10,8 @@ A instalação principal usa dados reais locais e tem uma chave Higgsfield conec
 6. Duas opções de personagem e vista de perfil salvas como referências.
 7. Cancelamento encaminhado ao provedor e ausência de reenvio automático após resposta incerta.
 8. Login, logout e isolamento de arquivos entre duas contas.
-9. Host allowlist da importação social e armazenamento de vídeo real retornado pelo importador substituto.
+9. Bloqueio de vídeos abaixo de 409.600 pixels por quadro antes de chamar o provedor, evitando cobrança por entrada pequena.
+10. Host allowlist da importação social e armazenamento de vídeo real retornado pelo importador substituto.
 
 Os testes utilizam imagens válidas e vídeos reais criados para verificação. Chamadas de geração e download de resultados da IA são substituídas no ambiente de teste, sem cobrança.
 
@@ -44,5 +45,6 @@ O catálogo do conector contém gpt_image_2_5, variantes Flare e Sunburst; o end
 
 ## Teste real de vídeo em 14/10/2026
 Um trecho de quatro segundos do link Instagram fornecido foi validado, enviado e acompanhado pela API Genjutsu Object Swap. A resposta final foi nsfw, sem mídia de saída. Cobrança de US$5,55 estornada integralmente pelo provedor; saldo final observado US$9,77. Não houve reenvio nem alteração do conteúdo para contornar a recusa. A geração bem-sucedida de vídeo e sua qualidade visual continuam pendentes.
+
 
 

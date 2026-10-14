@@ -261,6 +261,7 @@ export function createApp({dataDir=join(root,'data'),provider:customProvider,upl
     if(path==='/api/generate'){
      if(!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
+     if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
      const prompt=String(b.prompt||'')||'Replace only the person with the referenced character. Preserve movement, camera, background, scene lighting and audio. '+c.description;if(prompt.length>10000)throw Error('Prompt excede 10.000 caracteres.');
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
      const j=newJob(user,'video',c.name,c.id,{duration:v.duration,videoId:v.id});

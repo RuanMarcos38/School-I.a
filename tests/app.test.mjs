@@ -8,11 +8,12 @@ import ffmpeg from 'ffmpeg-static';
 import {createApp} from '../server.mjs';
 import {run,inspectMedia,socialURL,concatenate,splitVideo} from '../lib/media.mjs';
 import {createVault} from '../lib/vault.mjs';
-let fixtures,png,short,long;
+let fixtures,png,short,long,small;
 before(async()=>{
  fixtures=mkdtempSync(join(tmpdir(),'school-fixtures-'));png=join(fixtures,'reference.png');short=join(fixtures,'short.mp4');long=join(fixtures,'long.mp4');
  await sharp({create:{width:64,height:96,channels:3,background:'#e3c341'}}).png().toFile(png);
- for(const [file,duration]of [[short,6],[long,36]])await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-f','lavfi','-i','color=c=blue:s=160x120:r=12','-f','lavfi','-i','sine=frequency=440:sample_rate=44100','-t',String(duration),'-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest','-movflags','+faststart',file],{timeout:60000,windowsHide:true,maxBuffer:1e6});
+ small=join(fixtures,'small.mp4');
+ for(const [file,duration,size]of [[short,6,'640x640'],[long,36,'640x640'],[small,4,'160x120']])await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-f','lavfi','-i','color=c=blue:s='+size+':r=12','-f','lavfi','-i','sine=frequency=440:sample_rate=44100','-t',String(duration),'-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest','-movflags','+faststart',file],{timeout:60000,windowsHide:true,maxBuffer:1e6});
 });
 after(()=>rmSync(fixtures,{recursive:true,force:true}));
 async function instance(options={}){
@@ -172,6 +173,15 @@ test('login, logout e isolamento de arquivos e referências por usuário',async(
   assert.equal((await a.post('characters',{name:'Sem acesso',images:[image.id]},secondCookie)).status,400);
   assert.equal((await a.post('auth/login',{email:'another@example.test',password:'wrong'})).status,401);
   await a.post('auth/logout',{},secondCookie);assert.equal((await a.get('/api/state',secondCookie)).status,401);
+ }finally{await a.close();}
+});
+test('vídeo pequeno é recusado antes de upload pago ao provedor',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);const {character}=await prepared(a),video=await a.upload(small,'video/mp4');
+  const calls=mock.calls.length,response=await a.post('generate',{characterId:character.id,videoId:video.id});
+  assert.equal(response.status,400);assert.match((await response.json()).error,/Vídeo pequeno/);
+  assert.equal(mock.calls.length,calls);assert.equal((await (await a.get('/api/state')).json()).jobs.length,0);
  }finally{await a.close();}
 });
 test('importação aceita plataformas permitidas e valida o vídeo retornado',async()=>{

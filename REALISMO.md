@@ -28,3 +28,6 @@ A recarga de US$10 foi autorizada e concluída. Um card e duas vistas (perfil e 
 
 O teste de vídeo autorizado foi recusado pelo filtro do provedor (nsfw), sem resultado. A cobrança foi estornada. Não é possível avaliar identidade em movimento, áudio ou cenário a partir desse teste.
 
+
+O tamanho mínimo de entrada do Genjutsu é validado antes do envio pago: 409.600 pixels por quadro, conforme a documentação oficial. Os testes de geração usam arquivos reais que atendem a esse requisito.
+

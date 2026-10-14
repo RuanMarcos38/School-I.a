@@ -48,13 +48,13 @@ Contas adicionais precisam de administração própria; cadastro público e recu
 pnpm test
 pnpm check
 ```
-Nove testes de integração aprovados. Eles usam arquivos reais, FFmpeg e SQLite; respostas do provedor são substituídas apenas no ambiente de testes.
+Dez testes de integração aprovados. Eles usam arquivos reais, FFmpeg e SQLite; respostas do provedor são substituídas apenas no ambiente de testes.
 No Chrome da instalação principal: upload e gravação de imagem, leitura do personagem, edição, pasta, favorito e seleção no Estúdio confirmados.
 Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 
 ## Diferenças e pendências
 - Flare confirmado com um card e duas vistas reais. Object Swap ainda depende do teste de vídeo de quatro segundos.
-- Hospedagem pública, domínio e pagamento não configurados.
+- Hospedagem pública, domínio e cobrança comercial própria não configurados.
 - Não há cobrança de R$49,90 nem promessa de três gerações grátis; essas regras pertencem ao negócio do original.
 - A conexão da assinatura usada pelo original não foi recuperada; esta implementação usa a API oficial.
 - O prompt de card desta versão foi escrito para o estilo observado e não é o prompt interno do original.
@@ -70,6 +70,7 @@ Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 - https://open.higgsfield.ai/models/higgsfield/genjutsu/object-swap/v1.0/playground
 - https://open.higgsfield.ai/models/marketing-studio/image/flare/api-reference
 - https://docs.higgsfield.ai/docs/llms.txt
+
 
 
 
