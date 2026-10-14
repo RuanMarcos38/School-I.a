@@ -183,10 +183,12 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
   const publicGet=req.method==='GET'&&['/','/app.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png'].includes(String(req.url||'').split('?')[0]);
-  if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet)){json(res,403,{error:'Origem não autorizada.'});return;}
+  const oauthCallback=req.method==='GET'&&String(req.url||'').split('?')[0]==='/api/mcp/callback';
+  if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback)){json(res,403,{error:'Origem não autorizada.'});return;}
   if(!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
   try{
    const url=new URL(req.url,origin),path=url.pathname,user=auth.read(req);
+   if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
    const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png'};
