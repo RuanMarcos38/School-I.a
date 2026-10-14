@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {createVault} from './lib/vault.mjs';
 import {createAuth} from './lib/auth.mjs';
+import {createMcpGateway} from './lib/mcp.mjs';
 import {createProvider,VIDEO_MODEL,IMAGE_MODEL,characterPrompt,viewPrompt,views,imageSettings} from './lib/provider.mjs';
 import {types,toolsReady,inspectMedia,receiveMedia,downloadMedia,streamMedia,splitVideo,concatenate,importSocial} from './lib/media.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
@@ -37,7 +38,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode});
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault});
  const getKey=userId=>{const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
  const findMedia=(id,userId)=>db.prepare("SELECT * FROM media WHERE id=? AND user_id IN (?, 'library')").get(id,userId);
@@ -53,8 +54,18 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const characters=db.prepare("SELECT * FROM characters WHERE user_id IN (?, 'library') AND deleted=0 ORDER BY name").all(user.id).map(c=>({...c,images:JSON.parse(c.images),labels:JSON.parse(c.labels),favorite:favorite(user.id,'character',c.id)||user.id==='local-owner'&&!!c.favorite}));
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(j=>({...j,outputs:JSON.parse(j.outputs),meta:JSON.parse(j.meta),favorite:favorite(user.id,'job',j.id)||user.id==='local-owner'&&!!j.favorite}));
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
-  return {testMode,user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
+  return {testMode,mcp:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
  }
+
+ function mcpInput(c,v,prompt,withoutProject=false){
+  if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
+  if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
+  prompt=String(prompt||'')||'Replace only the person with the referenced character. Preserve movement, camera, background, scene lighting and audio. '+c.description;
+  if(prompt.length>10000)throw Error('Prompt excede 10.000 caracteres.');
+  return {withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},references:JSON.parse(c.images).slice(0,5).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
+ }
+ async function submitMcp(job,quote){let sent=false;try{changeJob(job.id,'submitting');sent=true;const result=await mcp.generate(job.user_id,quote);if(!/^[a-zA-Z0-9_-]{1,200}$/.test(result.request_id))throw Error('Identificador MCP inválido.');db.prepare('INSERT INTO requests(id,job_id,part,status) VALUES(?,?,0,?)').run(result.request_id,job.id,'queued');db.prepare('UPDATE jobs SET request_id=? WHERE id=?').run(result.request_id,job.id);changeJob(job.id,'queued');}catch(e){changeJob(job.id,sent&&!e.definitive?'uncertain':'failed',sent&&!e.definitive?'Resposta MCP incompleta. Confira o Higgsfield antes de reenviar.':e.message);}}
+
  async function uploadPath(userId,path,type){
   const signed=await call(userId,'/files/generate-upload-url','POST',{content_type:type});
   if(!signed.upload_url||!signed.public_url)throw Error('Resposta de upload inválida.');
@@ -136,7 +147,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    for(const r of requests){
     const job=db.prepare('SELECT * FROM jobs WHERE id=?').get(r.job_id);if(!job)continue;
     try{
-     const s=await call(job.user_id,'/requests/'+encodeURIComponent(r.id)+'/status');
+     const s=JSON.parse(job.meta).transport==='mcp'?await mcp.status(job.user_id,r.id):await call(job.user_id,'/requests/'+encodeURIComponent(r.id)+'/status');
      if(s.status==='completed'){
       db.prepare("UPDATE requests SET status='materializing' WHERE id=?").run(r.id);await materialize(job,r,s);
      }else if(['queued','in_progress'].includes(s.status)){db.prepare('UPDATE requests SET status=? WHERE id=?').run(s.status,r.id);if(job.status!=='uncertain')changeJob(job.id,s.status);}
@@ -198,6 +209,11 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    }
    if(path.startsWith('/api/')&&req.method==='POST'){
     const b=await body(req);
+    if(path==='/api/mcp/connect'){json(res,200,await mcp.start(user.id,origin));return;}
+    if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
+    if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
+    if(path==='/api/mcp/disconnect'){if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);json(res,200,{ok:true});return;}
+    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true)));return;}
     if(path==='/api/provider/connect'){
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id).n)throw Error('Aguarde ou resolva a fila antes de trocar a chave.');
@@ -259,13 +275,15 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      return;
     }
     if(path==='/api/generate'){
-     if(!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
+     const transport=b.transport||'api';if(!['api','mcp'].includes(transport))throw Error('Conexão inválida.');
+     if(transport==='api'&&!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
      if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
      const prompt=String(b.prompt||'')||'Replace only the person with the referenced character. Preserve movement, camera, background, scene lighting and audio. '+c.description;if(prompt.length>10000)throw Error('Prompt excede 10.000 caracteres.');
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
-     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,videoId:v.id});
-     launch(()=>submit(j,{references:JSON.parse(c.images).slice(0,5),videoId:v.id,prompt}));json(res,202,{id:j.id});return;
+     const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,prompt,b.withoutProject===true),Number(b.maxCredits)):null;
+     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,videoId:v.id,transport,...(quote?{credits:quote.cost}:{})});
+     launch(()=>quote?submitMcp(j,quote):submit(j,{references:JSON.parse(c.images).slice(0,5),videoId:v.id,prompt}));json(res,202,{id:j.id});return;
     }
     if(path==='/api/generate-images'){
      if(!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
@@ -287,6 +305,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/cancel'){
      const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);if(!j||!['queued','in_progress'].includes(j.status))throw Error('Solicitação não pode ser cancelada neste estágio.');
+     if(JSON.parse(j.meta).transport==='mcp')throw Error('Para interromper uma geração MCP, use o painel oficial Higgsfield.');
      const requests=db.prepare("SELECT * FROM requests WHERE job_id=? AND status IN ('queued','in_progress')").all(j.id);
      for(const r of requests)await call(user.id,'/requests/'+encodeURIComponent(r.id)+'/cancel','POST');
      json(res,200,{ok:true,message:'Cancelamento solicitado. Aguarde confirmação do provedor.'});return;
