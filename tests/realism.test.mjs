@@ -14,3 +14,9 @@ test('feature switch restores the previous video prompt without altering scene t
  try{process.env.HUMAN_REALISM_ENABLED='false';assert.equal(videoPrompt('adult','Preserve the source camera'),'Preserve the source camera');}
  finally{if(previous===undefined)delete process.env.HUMAN_REALISM_ENABLED;else process.env.HUMAN_REALISM_ENABLED=previous;}
 });
+test('default cards and identity angles use chest-up portraits; full body remains explicit',()=>{
+ assert.match(characterPrompt('adult'),/chest-up portrait/);assert.doesNotMatch(characterPrompt('adult'),/head and feet fully visible/);
+ assert.match(characterPrompt('adult','body'),/head and feet fully visible/);
+ for(const view of ['front','profile','threequarter'])assert.match(viewPrompt('adult',view),/Chest-up/);
+ assert.match(viewPrompt('adult','body'),/Full body/);assert.throws(()=>characterPrompt('adult','invalid'),/Enquadramento/);
+});

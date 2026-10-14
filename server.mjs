@@ -1,3 +1,4 @@
+import {importLibrary,updateLibraryDescriptions} from './lib/library.mjs';
 import {withInstagramSession} from './lib/instagram-session.mjs';
 import {videoPrompt} from './lib/realism.mjs';
 import http from 'node:http';
@@ -29,7 +30,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  CREATE TABLE IF NOT EXISTS favorites(user_id TEXT,kind TEXT,target TEXT,PRIMARY KEY(user_id,kind,target));
  CREATE TABLE IF NOT EXISTS migrations(name TEXT PRIMARY KEY);`);
  function columns(table,fields){const names=db.prepare('PRAGMA table_info('+table+')').all().map(c=>c.name);for(const [name,sql]of Object.entries(fields))if(!names.includes(name))db.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+sql);}
- columns('characters',{user_id:"TEXT DEFAULT 'local-owner'",source:"TEXT DEFAULT 'created'",labels:"TEXT DEFAULT '{}'",deleted:"INTEGER DEFAULT 0"});
+ columns('characters',{description_pt:"TEXT DEFAULT ''",user_id:"TEXT DEFAULT 'local-owner'",source:"TEXT DEFAULT 'created'",labels:"TEXT DEFAULT '{}'",deleted:"INTEGER DEFAULT 0"});
  columns('media',{user_id:"TEXT DEFAULT 'local-owner'",width:'INTEGER DEFAULT 0',height:'INTEGER DEFAULT 0'});
  columns('jobs',{user_id:"TEXT DEFAULT 'local-owner'",kind:"TEXT DEFAULT 'video'",outputs:"TEXT DEFAULT '[]'",meta:"TEXT DEFAULT '{}'",hidden:'INTEGER DEFAULT 0'});
  // Original folders table is kept for migration only.
@@ -165,8 +166,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   }finally{polling=false;}
  }
  const timer=setInterval(()=>launch(poll),pollInterval);timer.unref();
- async function body(req){
-  let size=0,parts=[];for await(const part of req){size+=part.length;if(size>64*1024)throw error('Solicitação muito grande.',413);parts.push(part);}
+ async function body(req,max=64*1024){
+  let size=0,parts=[];for await(const part of req){size+=part.length;if(size>max)throw error('Solicitação muito grande.',413);parts.push(part);}
   try{return JSON.parse(Buffer.concat(parts).toString()||'{}');}catch{throw error('Dados inválidos.');}
  }
  function validateReferences(ids,userId,max=8){
@@ -214,7 +215,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     return;
    }
    if(path.startsWith('/api/')&&req.method==='POST'){
-    const b=await body(req);
+    const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:64*1024);
+    if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
+    if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
     if(path==='/api/mcp/connect'){json(res,200,await mcp.start(user.id,origin));return;}
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
@@ -246,7 +249,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/characters/clone'){
      const c=findCharacter(b.id,user.id);if(!c)throw error('Personagem não encontrado.',404);
-     const id=randomUUID();db.prepare("INSERT INTO characters(id,user_id,name,description,images,labels) VALUES(?,?,?,?,?,?)").run(id,user.id,c.name+' (cópia)',c.description,c.images,c.labels);json(res,201,{id});return;
+     const id=randomUUID();db.prepare("INSERT INTO characters(id,user_id,name,description,images,labels,description_pt) VALUES(?,?,?,?,?,?,?)").run(id,user.id,c.name+' (cópia)',c.description,c.images,c.labels,c.description_pt||'');json(res,201,{id});return;
     }
     if(path==='/api/characters/archive'||path==='/api/characters/restore'){
      const c=db.prepare('SELECT * FROM characters WHERE id=? AND user_id=?').get(b.id,user.id);if(!c)throw error('Personagem não encontrado.',404);
@@ -304,9 +307,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      const name=String(b.name||'').trim(),description=String(b.description||'').trim(),options=Number(b.options||2);
      if(!name||name.length>100||!description||description.length>8000||!Number.isInteger(options)||options<1||options>4)throw Error('Informe nome, descrição e de 1 a 4 opções.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n+options>8)throw Error('Aguarde a fila antes de gerar todas as opções.');
-     const quality=b.quality||'standard';imageSettings(quality);
+     const quality=b.quality||'standard',framing=b.framing||'portrait';imageSettings(quality);characterPrompt(description,framing);
      const references=validateReferences(b.references||[],user.id,3),batch=randomUUID(),ids=[];
-     for(let i=0;i<options;i++){const j=newJob(user,'image',name,null,{batch,description,option:i+1,quality});ids.push(j.id);launch(()=>submit(j,{references,prompt:characterPrompt(description),quality}));}
+     for(let i=0;i<options;i++){const j=newJob(user,'image',name,null,{batch,description,option:i+1,quality,framing});ids.push(j.id);launch(()=>submit(j,{references,prompt:characterPrompt(description,framing),quality}));}
      json(res,202,{ids,batch});return;
     }
     if(path==='/api/generate-view'){

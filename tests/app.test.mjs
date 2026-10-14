@@ -8,6 +8,7 @@ import ffmpeg from 'ffmpeg-static';
 import {createApp} from '../server.mjs';
 import {run,inspectMedia,socialURL,concatenate,splitVideo} from '../lib/media.mjs';
 import {createVault} from '../lib/vault.mjs';
+import {createHash} from 'node:crypto';
 let fixtures,png,short,long,small;
 before(async()=>{
  fixtures=mkdtempSync(join(tmpdir(),'school-fixtures-'));png=join(fixtures,'reference.png');short=join(fixtures,'short.mp4');long=join(fixtures,'long.mp4');
@@ -223,5 +224,19 @@ test('authenticated Instagram import removes session and reuses the same link fo
   const r=await a.post('import-instagram-session',{url:'https://www.instagram.com/p/DeBwwYiIO-F/',cookies});assert.equal(r.status,201,await r.clone().text());const imported=await r.json();assert.equal(existsSync(cookiePath),false);assert.ok(!JSON.stringify(imported).includes('synthetic-session'));
   const again=await a.post('import-link',{url:'https://instagram.com/reel/DeBwwYiIO-F/?igsh=abc'});assert.equal(again.status,200);const cached=await again.json();assert.equal(cached.id,imported.id);assert.equal(cached.cached,true);assert.equal(calls,1);assert.equal((await a.get(cached.url+'?download=1')).status,200);
   assert.equal(a.server.school.db.prepare('SELECT COUNT(*) AS n FROM imported_links').get().n,1);
+ }finally{await a.close();}
+});
+test('admin library import preserves existing characters and rejects file replacement',async()=>{
+ const a=await instance();try{
+  const own=await prepared(a),id=createHash('sha256').update('fixture-reference').digest('hex');
+  const packet={media:[{id,type:'image/png',data:readFileSync(png).toString('base64')}],characters:[{id:'library-'+'a'.repeat(32),name:'Library fixture',description:'Exact supplied description',images:[id],labels:{[id]:'Card'}}]};
+  const result=await a.post('library/import',packet);assert.equal(result.status,201,await result.clone().text());
+  assert.deepEqual(await result.json(),{characters:1,references:1});
+  const state=await (await a.get('/api/state')).json();assert.ok(state.characters.some(c=>c.id===own.character.id));assert.ok(state.characters.some(c=>c.name==='Library fixture'));
+  assert.equal((await a.post('library/import',packet)).status,201);assert.equal((await (await a.get('/api/state')).json()).characters.length,2);
+  assert.equal((await a.post('library/descriptions',{characters:[{name:'Library fixture',description:'English description',descriptionPt:'Descrição original',images:[{path:'fixture-reference',label:'Frente'}]}]})).status,200);
+  const libraryCharacter=(await (await a.get('/api/state')).json()).characters.find(c=>c.name==='Library fixture');assert.equal(libraryCharacter.description_pt,'Descrição original');assert.equal(libraryCharacter.labels[id],'Frente');
+  const clone=await (await a.post('characters/clone',{id:libraryCharacter.id})).json();assert.equal((await (await a.get('/api/state')).json()).characters.find(c=>c.id===clone.id).description_pt,'Descrição original');
+  packet.media[0].data=Buffer.from('invalid-image').toString('base64');assert.equal((await a.post('library/import',packet)).status,400);assert.ok(readFileSync(join(a.dataDir,'media',id)).equals(readFileSync(png)));
  }finally{await a.close();}
 });
