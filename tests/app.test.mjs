@@ -1,59 +1,185 @@
-import {test} from 'node:test';
+import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,readFileSync,copyFileSync,writeFileSync,mkdirSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import sharp from 'sharp';
+import ffmpeg from 'ffmpeg-static';
 import {createApp} from '../server.mjs';
-test('biblioteca, validação, origem, configuração e persistência',async()=>{
- const dataDir=mkdtempSync(join(tmpdir(),'school-test-'));
- let app=createApp({dataDir});await new Promise(r=>app.listen(0,'127.0.0.1',r));
- let base='http://127.0.0.1:'+app.address().port;
- const post=async(p,b)=>fetch(base+p,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(b)});
+import {run,inspectMedia,socialURL,concatenate,splitVideo} from '../lib/media.mjs';
+import {createVault} from '../lib/vault.mjs';
+let fixtures,png,short,long;
+before(async()=>{
+ fixtures=mkdtempSync(join(tmpdir(),'school-fixtures-'));png=join(fixtures,'reference.png');short=join(fixtures,'short.mp4');long=join(fixtures,'long.mp4');
+ await sharp({create:{width:64,height:96,channels:3,background:'#e3c341'}}).png().toFile(png);
+ for(const [file,duration]of [[short,6],[long,36]])await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-f','lavfi','-i','color=c=blue:s=160x120:r=12','-f','lavfi','-i','sine=frequency=440:sample_rate=44100','-t',String(duration),'-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest','-movflags','+faststart',file],{timeout:60000,windowsHide:true,maxBuffer:1e6});
+});
+after(()=>rmSync(fixtures,{recursive:true,force:true}));
+async function instance(options={}){
+ const dataDir=mkdtempSync(join(tmpdir(),'school-app-'));
+ const server=createApp({dataDir,pollInterval:9999999,...options});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const base='http://127.0.0.1:'+server.address().port;
+ const post=(path,body={},cookie)=>fetch(base+'/api/'+path,{method:'POST',headers:{Origin:base,'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body)});
+ const get=(path,cookie)=>fetch(base+path,{headers:cookie?{Cookie:cookie}:{}});
+ const upload=async(file,type,cookie)=>{const response=await fetch(base+'/api/media',{method:'POST',headers:{Origin:base,'Content-Type':type,...(cookie?{Cookie:cookie}:{})},body:readFileSync(file)});assert.equal(response.status,201,await response.clone().text());return response.json();};
+ const close=async()=>{await Promise.allSettled([...server.school.background]);await new Promise(r=>server.close(r));await new Promise(r=>setTimeout(r,20));rmSync(dataDir,{recursive:true,force:true});};
+ return {server,base,post,get,upload,close,dataDir};
+}
+function mockProvider(){
+ const uploads=new Map(),requests=new Map(),calls=[];let count=0,cancel=false;
+ return {
+  calls,uploads,requests,
+  provider:async(path,method,input,credentials)=>{
+   calls.push({path,method,input,key:credentials?.key});
+   if(path.includes('/presets')){if(credentials?.key==='invalid-key-test')throw Error('Chave inválida.');return {items:[]};}
+   if(path==='/files/generate-upload-url'){const id='upload-'+(++count);return {upload_url:'https://storage.example/'+id,public_url:'https://storage.example/'+id,upload_headers:{'Content-Type':input.content_type}};}
+   if(path.includes('object-swap')||path.includes('/image/flare')){
+    if(input.prompt==='force-definitive'){const e=Error('Input inválido no provedor.');e.definitive=true;throw e;}
+    if(input.prompt==='force-uncertain')throw Error('Timeout');
+    const id='request-'+(++count);requests.set(id,{...input,kind:path.includes('object-swap')?'video':'image',status:'completed'});return {request_id:id};
+   }
+   const id=path.split('/')[2],request=requests.get(id);if(!request)throw Error('Solicitação não existe.');
+   if(path.endsWith('/cancel')){request.status='canceled';return {ok:true};}
+   return request.status==='completed'?{status:'completed',...(request.kind==='video'?{video:{url:'https://result.example/'+id}}:{images:[{url:'https://result.example/'+id}]})}:{status:request.status};
+  },
+  uploadFetch:async(url,options)=>{uploads.set(String(url),Buffer.from(options.body));return {ok:true};},
+  download:async(url,path)=>{
+   const request=requests.get(new URL(url).pathname.slice(1));
+   if(!request)throw Error('Resultado desconhecido.');
+   if(request.kind==='video')writeFileSync(path,uploads.get(request.video_url));
+   else copyFileSync(png,path);
+   return {size:readFileSync(path).length,type:request.kind==='video'?'video/mp4':'image/png'};
+  }
+ };
+}
+async function connect(a){const r=await a.post('provider/connect',{key:'test-key-do-not-use'});assert.equal(r.status,200,await r.clone().text());}
+async function prepared(a){const image=await a.upload(png,'image/png');const r=await a.post('characters',{name:'Personagem <teste>',description:'Cabelo castanho e roupa azul',images:[image.id]});assert.equal(r.status,201);const character=await r.json();const video=await a.upload(short,'video/mp4');return {image,character,video};}
+async function settle(a){
+ await Promise.allSettled([...a.server.school.background]);await a.server.school.poll();
+ return (await (await a.get('/api/state')).json()).jobs;
+}
+test('biblioteca própria, imagens reais, favoritos, pastas, capas e persistência',async()=>{
+ const a=await instance();
  try{
-  assert.equal((await fetch(base+'/api/state')).status,200);
-  assert.equal((await fetch(base+'/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"name":"x"}'})).status,403);
-  assert.equal((await post('/api/characters',{name:'Inválido',images:[]})).status,400);
-  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBfsAAAAASUVORK5CYII=','base64');
-  const r=await fetch(base+'/api/media',{method:'POST',headers:{Origin:base,'Content-Type':'image/png'},body:png});
-  assert.equal(r.status,201);const m=await r.json();
-  assert.equal((await fetch(base+'/media/'+m.id)).status,200);
-  const fake=await fetch(base+'/api/media',{method:'POST',headers:{Origin:base,'Content-Type':'image/png'},body:'not-an-image'});assert.equal(fake.status,400);
-  await post('/api/folders',{name:'Pasta'});
-  const c=await (await post('/api/characters',{name:'Meu personagem',description:'Descrição',folder:'Pasta',images:[m.id]})).json();
-  await post('/api/favorite',{id:c.id});
-  const old=process.env.HF_API_KEY;delete process.env.HF_API_KEY;
-  assert.equal((await post('/api/generate',{characterId:c.id,videoId:'missing'})).status,503);
-  if(old)process.env.HF_API_KEY=old;
-  await new Promise(r=>app.close(r));
-  app=createApp({dataDir});await new Promise(r=>app.listen(0,'127.0.0.1',r));base='http://127.0.0.1:'+app.address().port;
-  const s=await (await fetch(base+'/api/state')).json();
-  assert.equal(s.characters.length,1);assert.equal(s.characters[0].favorite,1);assert.deepEqual(s.folders,['Pasta']);assert.equal(s.jobs.length,0);
- }finally{await new Promise(r=>app.close(r));rmSync(dataDir,{recursive:true,force:true});}
+  const p=await prepared(a);
+  await a.post('folders',{name:'Pasta original'});
+  const edit=await a.post('characters',{id:p.character.id,name:'Editado',folder:'Pasta original',description:'Texto',images:[p.image.id]});assert.equal(edit.status,201);
+  await a.post('folders/rename',{oldName:'Pasta original',name:'Pasta nova'});
+  await a.post('favorite',{id:p.character.id});
+  const s=await (await a.get('/api/state')).json();assert.equal(s.characters[0].name,'Editado');assert.equal(s.characters[0].folder,'Pasta nova');assert.equal(s.characters[0].favorite,true);assert.deepEqual(s.folders,['Pasta nova']);
+  const clone=await (await a.post('characters/clone',{id:p.character.id})).json();assert.ok(clone.id);
+  assert.equal((await a.post('characters/archive',{id:clone.id})).status,200);
+  assert.equal((await (await a.get('/api/archived')).json()).characters[0].id,clone.id);
+  assert.equal((await a.post('characters/restore',{id:clone.id})).status,200);
+  const imageResponse=await a.get('/media/'+p.image.id+'?download=1');assert.match(imageResponse.headers.get('content-disposition'),/attachment/);
+  const range=await fetch(a.base+'/media/'+p.video.id,{headers:{Range:'bytes=0-31'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,32);
+  const invalid=await fetch(a.base+'/media/'+p.video.id,{headers:{Range:'bytes=999999999999-'}});assert.equal(invalid.status,416);
+  await new Promise(r=>a.server.close(r));await new Promise(r=>setTimeout(r,20));
+  const reopened=createApp({dataDir:a.dataDir});await new Promise(r=>reopened.listen(0,'127.0.0.1',r));
+  const final=await (await fetch('http://127.0.0.1:'+reopened.address().port+'/api/state')).json();assert.equal(final.characters.length,2);assert.equal(final.characters.find(c=>c.id===p.character.id).favorite,true);
+  await new Promise(r=>reopened.close(r));
+ }finally{if(a.server.listening)await a.close();else rmSync(a.dataDir,{recursive:true,force:true});}
+});
+test('origem, host, conteúdo falso e geração sem chave são bloqueados',async()=>{
+ const a=await instance();const old=process.env.HF_API_KEY;delete process.env.HF_API_KEY;
+ try{
+  assert.equal((await fetch(a.base+'/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
+  assert.equal((await fetch(a.base+'/api/folders',{method:'POST',headers:{Origin:'not a URL','Content-Type':'application/json'},body:'{}'})).status,403);
+  const {request}=await import('node:http');
+  const hostStatus=await new Promise((resolve,reject)=>{const r=request(a.base+'/api/state',{headers:{Host:'evil.example'}},response=>{response.resume();resolve(response.statusCode);});r.on('error',reject);r.end();});
+  assert.equal(hostStatus,403);
+  const bad=await fetch(a.base+'/api/media',{method:'POST',headers:{Origin:a.base,'Content-Type':'image/png'},body:Buffer.from([137,80,78,71,13,10,26,10])});assert.equal(bad.status,400);
+  assert.equal((await a.post('characters',{name:'Sem imagem',images:[]})).status,400);
+  assert.equal((await a.post('generate',{characterId:'x',videoId:'x'})).status,503);
+  assert.equal((await a.post('favorite',{id:'does-not-exist'})).status,404);
+ }finally{if(old)process.env.HF_API_KEY=old;await a.close();}
+});
+test('chave é validada antes de salvar, cifrada no banco e omitida do estado',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  assert.equal((await a.post('provider/connect',{key:'invalid-key-test'})).status,400);
+  assert.equal((await (await a.get('/api/state')).json()).provider.configured,false);
+  await connect(a);
+  const stateText=await (await a.get('/api/state')).text();assert.ok(!stateText.includes('test-key-do-not-use'));
+  const stored=a.server.school.db.prepare('SELECT credential FROM settings').get().credential;assert.ok(!stored.includes('test-key-do-not-use'));assert.equal(createVault(a.dataDir).decrypt(stored),'test-key-do-not-use');
+  assert.equal((await a.post('provider/verify')).status,200);
+  assert.equal((await a.post('provider/disconnect')).status,200);
+  assert.equal((await (await a.get('/api/state')).json()).provider.configured,false);
+ }finally{await a.close();}
+});
+test('geração de vídeo atravessa upload, provedor, resultado local e download',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);const p=await prepared(a);
+  assert.equal((await a.post('generate',{characterId:p.character.id,videoId:p.video.id})).status,202);
+  assert.equal((await a.post('generate',{characterId:p.character.id,videoId:p.video.id})).status,400);
+  const [job]=await settle(a);assert.equal(job.status,'completed',job.error);assert.match(job.result,/^\/media\//);
+  const downloaded=await a.get(job.result+'?download=1');assert.equal(downloaded.status,200);assert.ok((await downloaded.arrayBuffer()).byteLength>1000);
+  assert.equal(mock.calls.filter(c=>c.path.includes('object-swap')).length,1);
+  assert.equal((await a.post('favorite',{id:job.id,kind:'job'})).status,200);
+  assert.equal((await a.post('jobs/hide',{id:job.id})).status,200);
+  assert.equal((await (await a.get('/api/state')).json()).jobs.length,0);
+ }finally{await a.close();}
+});
+test('vídeo de 36 s é dividido, enviado em duas partes e reunido com áudio',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);const p=await prepared(a),video=await a.upload(long,'video/mp4');
+  const r=await a.post('generate',{characterId:p.character.id,videoId:video.id});assert.equal(r.status,202);
+  const [job]=await settle(a);assert.equal(job.status,'completed',job.error);
+  assert.equal(mock.calls.filter(c=>c.path.includes('object-swap')).length,2);
+  const info=await inspectMedia(join(a.dataDir,'media',job.outputs[0]),'video/mp4');assert.ok(info.duration>=35.5&&info.duration<=36.5,info.duration);
+ }finally{await a.close();}
+});
+test('opções de personagem e vistas geradas viram referências persistentes',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);
+  const result=await a.post('generate-images',{name:'Novo',description:'Homem adulto de jaqueta azul',options:2,references:[]});assert.equal(result.status,202);const batch=(await result.json()).batch;
+  const jobs=await settle(a);assert.equal(jobs.length,2);assert.ok(jobs.every(j=>j.status==='completed'));assert.ok(jobs.every(j=>j.meta.batch===batch));
+  const c=await (await a.post('characters',{name:'Novo',description:'Jaqueta azul',images:jobs[0].outputs})).json();
+  assert.equal((await a.post('generate-view',{characterId:c.id,view:'profile'})).status,202);
+  await settle(a);const state=await (await a.get('/api/state')).json(),character=state.characters.find(item=>item.id===c.id);
+  assert.equal(character.images.length,2);assert.equal(character.labels[character.images[1]],'profile');
+  assert.equal((await a.post('characters/cover',{id:c.id,imageId:character.images[1]})).status,200);
+  assert.equal((await (await a.get('/api/state')).json()).characters[0].images[0],character.images[1]);
+ }finally{await a.close();}
+});
+test('cancelamento chega ao provedor e falha incerta não é reenviada',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);const p=await prepared(a);await a.post('generate',{characterId:p.character.id,videoId:p.video.id});
+  await Promise.allSettled([...a.server.school.background]);const job=(await (await a.get('/api/state')).json()).jobs[0];
+  assert.equal((await a.post('cancel',{id:job.id})).status,200);await a.server.school.poll();
+  assert.equal((await (await a.get('/api/state')).json()).jobs[0].status,'canceled');
+  await a.post('generate',{characterId:p.character.id,videoId:p.video.id,prompt:'force-uncertain'});await Promise.allSettled([...a.server.school.background]);await a.server.school.poll();
+  const s=await (await a.get('/api/state')).json();assert.equal(s.jobs[0].status,'uncertain');
+  const submits=mock.calls.filter(c=>c.path.includes('object-swap')).length;await a.server.school.poll();assert.equal(mock.calls.filter(c=>c.path.includes('object-swap')).length,submits);
+ }finally{await a.close();}
+});
+test('login, logout e isolamento de arquivos e referências por usuário',async()=>{
+ const a=await instance({localMode:false});
+ try{
+  assert.equal((await a.get('/api/state')).status,401);
+  const token=readFileSync(join(a.dataDir,'setup-token.txt'),'utf8');
+  const response=await a.post('auth/setup',{email:'admin@example.test',password:'Test-password-long-123',name:'Admin',token});assert.equal(response.status,200);
+  const cookie=response.headers.get('set-cookie').split(';')[0],image=await a.upload(png,'image/png',cookie);
+  assert.equal((await a.get('/media/'+image.id,cookie)).status,200);assert.equal((await a.get('/media/'+image.id)).status,401);
+  const {scryptSync,randomBytes}=await import('node:crypto');const salt=randomBytes(16).toString('hex');
+  a.server.school.db.prepare('INSERT INTO users VALUES(?,?,?,?,?,0)').run('another','another@example.test','Outro',scryptSync('Other-password-long',salt,64).toString('hex'),salt);
+  const second=await a.post('auth/login',{email:'another@example.test',password:'Other-password-long'});assert.equal(second.status,200);const secondCookie=second.headers.get('set-cookie').split(';')[0];
+  assert.equal((await a.get('/media/'+image.id,secondCookie)).status,404);
+  assert.equal((await a.post('characters',{name:'Sem acesso',images:[image.id]},secondCookie)).status,400);
+  assert.equal((await a.post('auth/login',{email:'another@example.test',password:'wrong'})).status,401);
+  await a.post('auth/logout',{},secondCookie);assert.equal((await a.get('/api/state',secondCookie)).status,401);
+ }finally{await a.close();}
+});
+test('importação aceita plataformas permitidas e valida o vídeo retornado',async()=>{
+ assert.throws(()=>socialURL('https://localhost/private'));assert.throws(()=>socialURL('https://instagram.com.evil.example/a'));assert.throws(()=>socialURL('http://www.tiktok.com/x'));
+ assert.match(socialURL('https://www.instagram.com/reel/example/'),/instagram/);
+ const a=await instance({importer:async(raw,path)=>{socialURL(raw);copyFileSync(short,path);return inspectMedia(path,'video/mp4');}});
+ try{assert.equal((await a.post('import-link',{url:'https://localhost/secret'})).status,400);const r=await a.post('import-link',{url:'https://www.instagram.com/reel/example/'});assert.equal(r.status,201);const video=await r.json();assert.ok(video.duration>=6);assert.equal((await a.get(video.url)).status,200);}
+ finally{await a.close();}
 });
 
-test('envio ao provedor, conclusão e galeria com provedor de teste',async()=>{
- const dataDir=mkdtempSync(join(tmpdir(),'school-generation-'));
- const calls=[];const old=process.env.HF_API_KEY;process.env.HF_API_KEY='test-only';
- const provider=async(path,method,input)=>{
-  calls.push({path,method,input});
-  if(path==='/files/generate-upload-url')return {upload_url:'https://storage.example/upload',public_url:'https://storage.example/media',upload_headers:{'Content-Type':input.content_type}};
-  if(path.includes('object-swap'))return {request_id:'test-request',status:'queued'};
-  if(path.endsWith('/status'))return {status:'completed',video:{url:'https://cdn.example/output.mp4'}};
-  throw new Error('Unexpected provider route');
- };
- const app=createApp({dataDir,provider,uploadFetch:async()=>({ok:true}),pollInterval:50});await new Promise(r=>app.listen(0,'127.0.0.1',r));
- const base='http://127.0.0.1:'+app.address().port;
- const post=async(p,b)=>fetch(base+p,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(b)});
- try{
-  const upload=async(type,body,duration)=>{const r=await fetch(base+'/api/media',{method:'POST',headers:{Origin:base,'Content-Type':type,'X-Duration':String(duration||0)},body});assert.equal(r.status,201);return r.json();};
-  const image=await upload('image/png',Buffer.from([137,80,78,71,13,10,26,10]));
-  const video=await upload('video/mp4',Buffer.from([0,0,0,16,102,116,121,112,105,115,111,109]),5);
-  const c=await (await post('/api/characters',{name:'Teste',images:[image.id]})).json();
-  const r=await post('/api/generate',{characterId:c.id,videoId:video.id});assert.equal(r.status,202);
-  let job;
-  for(let i=0;i<50;i++){job=(await (await fetch(base+'/api/state')).json()).jobs[0];if(job.status==='completed')break;await new Promise(r=>setTimeout(r,20));}
-  assert.equal(job.status,'completed');assert.equal(job.result,'https://cdn.example/output.mp4');
-  const submit=calls.find(c=>c.path.includes('object-swap'));assert.equal(submit.input.resolution,'1080p');assert.equal(submit.input.image_urls.length,1);
-  assert.equal(calls.filter(c=>c.path.includes('object-swap')).length,1);
- }finally{await new Promise(r=>app.close(r));if(old)process.env.HF_API_KEY=old;else delete process.env.HF_API_KEY;rmSync(dataDir,{recursive:true,force:true});}
-});
+

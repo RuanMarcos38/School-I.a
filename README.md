@@ -1,53 +1,73 @@
-# School IA
-Implementação independente baseada em inspeção da interface de Characters School. **Não é um clone 100% nem uma entrega de produção concluída.**
+# School IA · instalação local
+Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A conexão de geração real está **pendente de uma chave da API Higgsfield**. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
 
-## Executar
-Instale Node.js 24 ou superior. Não há dependências externas.
+## Abrir
+Nesta máquina, o serviço já foi iniciado. Para reiniciar:
+```powershell
+node --use-env-proxy --env-file-if-exists=.env server.mjs
 ```
-node --env-file-if-exists=.env server.mjs
+Também é possível abrir start.cmd. Node 24 ou superior é necessário.
+
+## O que está configurado
+- Biblioteca local com 42 personagens e 123 referências, correspondentes a 123 entradas e 123 arquivos únicos observados na interface (prévia do original).
+- Busca, filtros Todos / Favoritos / Biblioteca / Criados, pastas e renomeação.
+- Referências próprias, edição, capa, cópia, arquivamento e restauração.
+- Upload JPG / PNG / WEBP até 10 MB por imagem; MP4 / MOV / WEBM de 4–60 s e até 300 MB.
+- Decodificação de imagens e validação de vídeo no servidor; duração não é aceita do navegador.
+- Pipeline Genjutsu Object Swap com até 5 referências; vídeos longos são divididos em partes de até 30 s e reunidos, preservando áudio quando todas as partes o contêm.
+- Criação de 1–4 opções por descrição e até 3 referências, usando o endpoint oficial GPT Image 2.5 Flare.
+- Vistas: frente, perfil, 3/4 direita, costas e cabelo; as imagens geradas entram no personagem.
+- Fila persistente, consulta de andamento, solicitação de cancelamento, erros e reconciliação manual de resposta incerta.
+- Resultados armazenados neste computador, download local, favoritos e comparação de vídeos.
+- Importador yt-dlp instalado com checksum oficial para links públicos TikTok / Instagram.
+- Chaves cifradas no servidor, fora do estado devolvido ao frontend, e excluídas do GitHub.
+- Modo local e modo com login, sessões HttpOnly, senha derivada com scrypt e isolamento de dados entre usuários.
+
+## Conectar geração real
+Abra Configurações → Conectar chave da API e cole a chave completa do console https://open.higgsfield.ai/api-keys. A consulta de validação não gera mídia.
+A chave não deve ser enviada no chat. A sessão da escola e o saldo da assinatura não são credenciais da API.
+A validação da chave consulta o catálogo Restyle. Isso confirma essa operação; o teste real de Object Swap / Flare continua necessário para confirmar acesso aos dois modelos.
+Gerações são cobradas pelo provedor. Não foi executada nenhuma geração paga nesta entrega.
+
+## Instalar em outra máquina Windows
+```powershell
+pnpm install --frozen-lockfile
+node --use-env-proxy scripts/setup.mjs
+pnpm start
 ```
-Abra http://localhost:3038. O serviço escuta apenas em 127.0.0.1.
-Na versão entregue, a chave da API não está configurada.
+O setup instala ferramentas e cria .env local. A biblioteca importada está na pasta data desta instalação; ela não é enviada ao repositório público. O pacote de código também exclui banco, chave e arquivos pessoais.
 
-## Recursos implementados
-- Estúdio com seleção, busca e favoritos de personagens.
-- Biblioteca própria persistente, pastas e edição de referências.
-- Upload local de imagens e vídeo, prévia e validação de formato/tamanho.
-- Solicitações Genjutsu Object Swap, envio de mídia por URL assinada, acompanhamento e solicitação de cancelamento.
-- Fila persistente, estados de erro, galeria, favoritos e comparação de dois resultados.
-- Banco SQLite e arquivos locais na pasta data. Faça backup dessa pasta.
-- Interface em português, adaptada para celular, inspirada na referência escura/amarela.
-- Credencial somente no servidor, proteção de Host/Origin e chamadas ao domínio oficial fixo.
+## Backup e acesso
+Faça backup de data inteira, incluindo school.sqlite, arquivos de mídia e master.key. A master.key permite ler credenciais cifradas; trate o backup como privado. Pare o serviço antes de copiar o banco ou use backup consistente de SQLite.
+O modo local escuta apenas 127.0.0.1 e dispensa login porque a instalação é privada do computador.
+Para habilitar o modo com login, configure LOCAL_MODE=false e PUBLIC_ORIGIN com o endereço HTTPS real atrás de um proxy TLS. O primeiro administrador usa o token local de data/setup-token.txt. A inicialização não foi publicada na internet nesta entrega.
+Contas adicionais precisam de administração própria; cadastro público e recuperação de senha por email não estão implementados.
 
-## Conectar Higgsfield
-Copie .env.example para .env e preencha HF_API_KEY com a chave completa da API do console oficial https://open.higgsfield.ai/api-keys. Reinicie.
-Não envie a chave no chat nem a publique no GitHub.
-A assinatura e sessão do site original não são transferidas.
-Geração tem custo no provedor. Nenhuma geração paga foi executada na validação.
-O servidor não reenvia POST de geração em caso de resposta ambígua. Estado "uncertain" exige conferência manual no console antes de nova tentativa.
-Polling retoma solicitações aceitas após reiniciar.
-
-## Limitações e pendências
-- Integração implementada a partir de documentação pública, SEM validação com chave real.
-- Referência pública de Object Swap informa endpoint e campos, mas a API reference detalhada exige login. A compatibilidade completa de limites e conta permanece pendente.
-- Limite conservador: 4–30 s, 200 MB; o original anuncia 4–60 s, 300 MB.
-- GPT Image 2.5/Série Amarela, prompt proprietário, criação de opções e geração automática de vistas não implementados.
-- Não incluídos os 42 personagens/assets privados da biblioteca original.
-- Importação de TikTok/Instagram não implementada.
-- Saldo da assinatura, cobrança de R$49,90, gerações grátis e login da escola não replicados.
-- Original aparenta usar integração da assinatura, enquanto esta versão usa API oficial separada.
-- Sem autenticação multiusuário, hospedagem pública, pagamentos, backup externo ou infraestrutura de produção.
-- Exportação de resultados abre o URL do provedor; retenção e disponibilidade seguem o provedor, sem promessa de 30 dias.
-- Duração conferida no navegador; servidor valida o valor recebido, não decodifica vídeo. Antes de publicação, adicionar análise de mídia no servidor.
-- Não expor este serviço local à internet sem implementar autenticação e isolamento por usuário.
-
-## Validação
+## Verificação
+```powershell
+pnpm test
+pnpm check
 ```
-node --test tests/*.test.mjs
-```
-Os testes cobrem persistência, uploads, bloqueio de origem, configuração ausente e o fluxo de geração com provedor substituto para testes. Não demonstram geração real.
+Nove testes de integração aprovados. Eles usam arquivos reais, FFmpeg e SQLite; respostas do provedor são substituídas apenas no ambiente de testes.
+No Chrome da instalação principal: upload e gravação de imagem, leitura do personagem, edição, pasta, favorito e seleção no Estúdio confirmados.
+Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
+
+## Diferenças e pendências
+- Geração real bloqueada pela ausência da chave da API e de um orçamento autorizado para testes pagos.
+- Hospedagem pública, domínio e pagamento não configurados.
+- Não há cobrança de R$49,90 nem promessa de três gerações grátis; essas regras pertencem ao negócio do original.
+- A conexão da assinatura usada pelo original não foi recuperada; esta implementação usa a API oficial.
+- O prompt de card desta versão foi escrito para o estilo observado e não é o prompt interno do original.
+- GPT Image 2.5 Flare é a variante documentada da API; equivalência com o modelo privado rotulado GPT Image 2.5 no original não foi demonstrada.
+- Imagens da biblioteca são as prévias acessíveis na página, não os arquivos originais de alta resolução.
+- Importação depende de links públicos e das restrições das plataformas. Nenhum link real TikTok / Instagram foi validado no teste final.
+- IA pode mudar identidade, áudio, movimento e continuidade entre partes. Não existe garantia de preservação perfeita.
+- Créditos, preços e cobranças são do provedor; não há saldo simulado.
+- Não foi recuperado o código-fonte ou backend da escola.
 
 ## Fontes oficiais
 - https://open.higgsfield.ai/quick-start
 - https://open.higgsfield.ai/models/higgsfield/genjutsu/object-swap/v1.0/playground
+- https://open.higgsfield.ai/models/marketing-studio/image/flare/api-reference
 - https://docs.higgsfield.ai/docs/llms.txt
+
