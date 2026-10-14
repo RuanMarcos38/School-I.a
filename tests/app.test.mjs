@@ -35,8 +35,8 @@ function mockProvider(){
    if(path.includes('/presets')){if(credentials?.key==='invalid-key-test')throw Error('Chave inválida.');return {items:[]};}
    if(path==='/files/generate-upload-url'){const id='upload-'+(++count);return {upload_url:'https://storage.example/'+id,public_url:'https://storage.example/'+id,upload_headers:{'Content-Type':input.content_type}};}
    if(path.includes('object-swap')||path.includes('/image/flare')){
-    if(input.prompt==='force-definitive'){const e=Error('Input inválido no provedor.');e.definitive=true;throw e;}
-    if(input.prompt==='force-uncertain')throw Error('Timeout');
+    if(input.prompt.endsWith('force-definitive')){const e=Error('Input inválido no provedor.');e.definitive=true;throw e;}
+    if(input.prompt.endsWith('force-uncertain'))throw Error('Timeout');
     const id='request-'+(++count);requests.set(id,{...input,kind:path.includes('object-swap')?'video':'image',status:'completed'});return {request_id:id};
    }
    const id=path.split('/')[2],request=requests.get(id);if(!request)throw Error('Solicitação não existe.');

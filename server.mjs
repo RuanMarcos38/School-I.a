@@ -1,3 +1,4 @@
+import {videoPrompt} from './lib/realism.mjs';
 import http from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,readFileSync,writeFileSync,existsSync,unlinkSync,statSync,copyFileSync} from 'node:fs';
@@ -60,8 +61,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function mcpInput(c,v,prompt,withoutProject=false){
   if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
   if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
-  prompt=String(prompt||'')||'Replace only the person with the referenced character. Preserve movement, camera, background, scene lighting and audio. '+c.description;
-  if(prompt.length>10000)throw Error('Prompt excede 10.000 caracteres.');
+  prompt=videoPrompt(c.description,prompt);
   return {withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},references:JSON.parse(c.images).slice(0,5).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
  }
  async function submitMcp(job,quote){let sent=false;try{changeJob(job.id,'submitting');sent=true;const result=await mcp.generate(job.user_id,quote);if(!/^[a-zA-Z0-9_-]{1,200}$/.test(result.request_id))throw Error('Identificador MCP inválido.');db.prepare('INSERT INTO requests(id,job_id,part,status) VALUES(?,?,0,?)').run(result.request_id,job.id,'queued');db.prepare('UPDATE jobs SET request_id=? WHERE id=?').run(result.request_id,job.id);changeJob(job.id,'queued');}catch(e){changeJob(job.id,sent&&!e.definitive?'uncertain':'failed',sent&&!e.definitive?'Resposta MCP incompleta. Confira o Higgsfield antes de reenviar.':e.message);}}
@@ -283,9 +283,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      if(transport==='api'&&!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
      if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
-     const prompt=String(b.prompt||'')||'Replace only the person with the referenced character. Preserve movement, camera, background, scene lighting and audio. '+c.description;if(prompt.length>10000)throw Error('Prompt excede 10.000 caracteres.');
+     const prompt=videoPrompt(c.description,b.prompt);
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
-     const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,prompt,b.withoutProject===true),Number(b.maxCredits)):null;
+     const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,b.prompt,b.withoutProject===true),Number(b.maxCredits)):null;
      const j=newJob(user,'video',c.name,c.id,{duration:v.duration,videoId:v.id,transport,...(quote?{credits:quote.cost}:{})});
      launch(()=>quote?submitMcp(j,quote):submit(j,{references:JSON.parse(c.images).slice(0,5),videoId:v.id,prompt}));json(res,202,{id:j.id});return;
     }
