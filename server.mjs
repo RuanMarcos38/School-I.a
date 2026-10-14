@@ -12,7 +12,7 @@ const root=dirname(fileURLToPath(import.meta.url));
 const active=['uploading','submitting','queued','in_progress','assembling','uncertain'];
 const terminal=['completed','failed','nsfw','canceled'];
 function error(message,status=400){const e=Error(message);e.status=status;return e;}
-export function createApp({dataDir=join(root,'data'),provider:customProvider,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
+export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
  mkdirSync(join(dataDir,'media'),{recursive:true});mkdirSync(join(dataDir,'processing'),{recursive:true});
  const db=new DatabaseSync(join(dataDir,'school.sqlite'));
  db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
