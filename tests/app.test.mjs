@@ -84,6 +84,8 @@ test('biblioteca própria, imagens reais, favoritos, pastas, capas e persistênc
 test('origem, host, conteúdo falso e geração sem chave são bloqueados',async()=>{
  const a=await instance();const old=process.env.HF_API_KEY;delete process.env.HF_API_KEY;
  try{
+  assert.equal((await fetch(a.base+'/',{headers:{'Sec-Fetch-Site':'cross-site'}})).status,200);
+  assert.equal((await fetch(a.base+'/api/state',{headers:{'Sec-Fetch-Site':'cross-site'}})).status,403);
   assert.equal((await fetch(a.base+'/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
   assert.equal((await fetch(a.base+'/api/folders',{method:'POST',headers:{Origin:'not a URL','Content-Type':'application/json'},body:'{}'})).status,403);
   const {request}=await import('node:http');

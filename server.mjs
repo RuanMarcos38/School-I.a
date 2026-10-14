@@ -182,7 +182,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
-  if(!allowedHosts.has(req.headers.host)||req.headers['sec-fetch-site']==='cross-site'){json(res,403,{error:'Origem não autorizada.'});return;}
+  const publicGet=req.method==='GET'&&['/','/app.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png'].includes(String(req.url||'').split('?')[0]);
+  if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet)){json(res,403,{error:'Origem não autorizada.'});return;}
   if(!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
   try{
    const url=new URL(req.url,origin),path=url.pathname,user=auth.read(req);
