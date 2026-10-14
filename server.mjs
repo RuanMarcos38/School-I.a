@@ -194,6 +194,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png'};
    if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
+   if(path==='/api/mcp/catalog'&&req.method==='GET'){json(res,200,await mcp.catalog(user.id));return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
    if(path==='/api/health'&&req.method==='GET'){json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
