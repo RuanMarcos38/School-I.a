@@ -26,8 +26,9 @@ Não foram demonstrados variante, qualidade, resolução e possíveis etapas adi
 A recarga de US$10 foi autorizada e concluída. Um card e duas vistas (perfil e costas) foram gerados e examinados. Pele, cabelo, tecido e anatomia apresentam aparência fotográfica; cabelo, roupa e cores se mantêm nas três referências. A inspeção visual não demonstra identidade perfeita nem equivalência ao original. Vídeo com movimento e comparação com o mesmo prompt no original continuam pendentes.
 
 
-O teste de vídeo autorizado foi recusado pelo filtro do provedor (nsfw), sem resultado. A cobrança foi estornada. Não é possível avaliar identidade em movimento, áudio ou cenário a partir desse teste.
+O primeiro teste de vídeo autorizado foi recusado pelo filtro do provedor (nsfw), sem resultado. A cobrança foi estornada. Não é possível avaliar identidade em movimento, áudio ou cenário a partir desse teste.
 
 
 O tamanho mínimo de entrada do Genjutsu é validado antes do envio pago: 409.600 pixels por quadro, conforme a documentação oficial. Os testes de geração usam arquivos reais que atendem a esse requisito.
+
 

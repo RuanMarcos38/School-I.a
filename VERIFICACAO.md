@@ -48,3 +48,7 @@ Um trecho de quatro segundos do link Instagram fornecido foi validado, enviado e
 
 
 
+
+## Segundo vídeo e suporte
+Outro vídeo foi escolhido pelo usuário, importado pelo aplicativo e recortado em quatro segundos. A solicitação foi aceita e permanece in_progress no provedor por mais de 40 minutos. A consulta direta confirma que não há arquivo de saída. Suporte oficial acionado por email com autorização explícita do usuário. A fila local continua ativa; a qualidade do vídeo ainda não foi validada e a entrega não pode ser declarada 100% concluída.
+

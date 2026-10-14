@@ -1,5 +1,5 @@
 # School IA · instalação local
-Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A chave Higgsfield foi criada com autorização e conectada nesta instalação. A autenticação foi validada e uma recarga de US$10 foi concluída com autorização. Um card e duas vistas foram gerados pela API real e salvos na biblioteca. O vídeo de quatro segundos foi enviado, mas recusado pelo provedor (nsfw), sem resultado; a cobrança foi estornada. Saldo observado após os testes: US$9,77. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
+Frontend e backend instalados e funcionando em http://localhost:3038, com SQLite, validação de mídia e biblioteca importada. A chave Higgsfield foi criada com autorização e conectada nesta instalação. A autenticação foi validada e uma recarga de US$10 foi concluída com autorização. Um card e duas vistas foram gerados pela API real e salvos na biblioteca. O vídeo de quatro segundos foi enviado, mas recusado pelo provedor (nsfw), sem resultado; a cobrança foi estornada. Saldo confirmado antes do segundo vídeo: US$9,77. A segunda gravação está em processamento no provedor. Não é possível afirmar que esta implementação é um clone 100% do código ou dos serviços internos do original.
 
 ## Abrir
 Nesta máquina, o serviço já foi iniciado. Para reiniciar:
@@ -70,6 +70,7 @@ Veja VERIFICACAO.md para o escopo completo e os pontos não validados.
 - https://open.higgsfield.ai/models/higgsfield/genjutsu/object-swap/v1.0/playground
 - https://open.higgsfield.ai/models/marketing-studio/image/flare/api-reference
 - https://docs.higgsfield.ai/docs/llms.txt
+
 
 
 
