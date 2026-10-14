@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {createVault} from './lib/vault.mjs';
 import {createAuth} from './lib/auth.mjs';
-import {createProvider,VIDEO_MODEL,IMAGE_MODEL,characterPrompt,viewPrompt,views} from './lib/provider.mjs';
+import {createProvider,VIDEO_MODEL,IMAGE_MODEL,characterPrompt,viewPrompt,views,imageSettings} from './lib/provider.mjs';
 import {types,toolsReady,inspectMedia,receiveMedia,downloadMedia,streamMedia,splitVideo,concatenate,importSocial} from './lib/media.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const active=['uploading','submitting','queued','in_progress','assembling','uncertain'];
@@ -78,7 +78,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     const m=findMedia(inputs.videoId,job.user_id),dir=join(dataDir,'processing',job.id);mkdirSync(dir,{recursive:true});
     const files=await split(join(dataDir,'media',m.id),dir,m.duration);payloads=[];
     for(const file of files)payloads.push({video_url:await uploadPath(job.user_id,file,'video/mp4'),image_urls:refs,prompt:inputs.prompt,resolution:'1080p'});
-   }else payloads=[{prompt:inputs.prompt,image_urls:refs,resolution:'2k',aspect_ratio:'3:4',quality:'high',enhance_prompt:false}];
+   }else payloads=[{prompt:inputs.prompt,image_urls:refs,...imageSettings(inputs.quality)}];
    changeJob(job.id,'submitting');
    for(let i=0;i<payloads.length;i++){
     submitted=true;
@@ -177,8 +177,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    const url=new URL(req.url,origin),path=url.pathname,user=auth.read(req);
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
-   const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};
-   if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+'; charset=utf-8'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
+   const staticFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png'};
+   if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
@@ -272,8 +272,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      const name=String(b.name||'').trim(),description=String(b.description||'').trim(),options=Number(b.options||2);
      if(!name||name.length>100||!description||description.length>8000||!Number.isInteger(options)||options<1||options>4)throw Error('Informe nome, descrição e de 1 a 4 opções.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n+options>8)throw Error('Aguarde a fila antes de gerar todas as opções.');
+     const quality=b.quality||'standard';imageSettings(quality);
      const references=validateReferences(b.references||[],user.id,3),batch=randomUUID(),ids=[];
-     for(let i=0;i<options;i++){const j=newJob(user,'image',name,null,{batch,description,option:i+1});ids.push(j.id);launch(()=>submit(j,{references,prompt:characterPrompt(description)}));}
+     for(let i=0;i<options;i++){const j=newJob(user,'image',name,null,{batch,description,option:i+1,quality});ids.push(j.id);launch(()=>submit(j,{references,prompt:characterPrompt(description),quality}));}
      json(res,202,{ids,batch});return;
     }
     if(path==='/api/generate-view'){

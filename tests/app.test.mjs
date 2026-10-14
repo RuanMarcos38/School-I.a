@@ -193,3 +193,22 @@ test('importação aceita plataformas permitidas e valida o vídeo retornado',as
 });
 
 
+test('qualidade máxima é encaminhada sem aceitar parâmetros arbitrários',async()=>{
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);
+  assert.equal((await a.post('generate-images',{name:'Teste',description:'Adulto',options:1,quality:'invalid'})).status,400);
+  assert.equal((await a.post('generate-images',{name:'Teste',description:'Adulto',options:1,quality:'maximum'})).status,202);
+  const [job]=await settle(a);assert.equal(job.status,'completed',job.error);
+  const call=mock.calls.find(c=>c.path.includes('/image/flare'));assert.equal(call.input.resolution,'4k');assert.equal(call.input.quality,'max');assert.equal(call.input.enhance_prompt,false);assert.equal(job.meta.quality,'maximum');
+ }finally{await a.close();}
+});
+test('app instalável tem recursos públicos válidos sem expor dados privados',async()=>{
+ const a=await instance({localMode:false});
+ try{
+  const manifest=await a.get('/manifest.webmanifest');assert.equal(manifest.status,200);assert.match(manifest.headers.get('content-type'),/application\/manifest\+json/);
+  const m=await manifest.json();assert.equal(m.display,'standalone');
+  for(const icon of m.icons){const r=await a.get(icon.src);assert.equal(r.status,200);const info=await sharp(Buffer.from(await r.arrayBuffer())).metadata();assert.equal(info.width,Number(icon.sizes.split('x')[0]));}
+  const sw=await a.get('/sw.js');assert.equal(sw.status,200);assert.match(sw.headers.get('content-type'),/javascript/);assert.equal((await a.get('/api/state')).status,401);
+ }finally{await a.close();}
+});
