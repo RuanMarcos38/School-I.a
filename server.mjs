@@ -48,7 +48,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode,allowPendingLogin:()=>billing.autoApproval()}),mcp=createMcpGateway({db,vault,isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode,allowPendingLogin:()=>billing.autoApproval()}),mcp=createMcpGateway({db,vault,onIdentity:(user,email)=>connections.setEmail(user,'mcp',email,'provider'),isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
  function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
  const notifications=createNotifications(db,vault,{request:emailFetch}),billing=createBilling(db,vault,{request:billingFetch,notify:notifications.enqueue});
@@ -245,6 +245,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/billing/cancel'){json(res,200,await billing.cancel(user,String(b.id)));return;}
     if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
     if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
+    if(path==='/api/connections/email'){connections.setEmail(user.id,b.kind,b.email);json(res,200,{ok:true});return;}
     if(path==='/api/connections/select'){assertAccountChange(user.id);const result=connections.select(user.id,String(b.id));json(res,200,result);return;}
     if(path==='/api/mcp/connect'){assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');json(res,200,await mcp.start(user.id,origin,b.label));return;}
     if(path==='/api/mcp/cancel'){mcp.cancelPending(user.id);json(res,200,{ok:true});return;}
@@ -252,7 +253,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
     if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
     if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
-    if(path==='/api/provider/connect'){
+    if(path==='/api/provider/connect'){if(b.email&&(typeof b.email!=='string'||b.email.length>254||!/^\S+@\S+\.\S+$/.test(b.email.trim())))throw Error('Informe um email válido para identificar a conta.');
      assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id).n)throw Error('Aguarde ou resolva a fila antes de trocar a chave.');
@@ -262,7 +263,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      else await customProvider('/models/higgsfield/genjutsu/restyle/v1.0/presets','GET',undefined,{key:b.key});
      assertAccountChange(user.id);connections.capture(user.id,'api');
      db.prepare('INSERT INTO settings VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET credential=excluded.credential,verified=excluded.verified').run(user.id,vault.encrypt(b.key.trim()),new Date().toISOString());
-     connections.save(user.id,'api',b.label||'Conta Higgsfield');
+     connections.save(user.id,'api',b.label||'Conta Higgsfield');if(b.email)connections.setEmail(user.id,'api',b.email);
      json(res,200,{ok:true,message:'Chave validada e armazenada. Acesso aos modelos e saldo seguem o provedor.'});return;
     }
     if(path==='/api/provider/disconnect'){assertAccountChange(user.id);

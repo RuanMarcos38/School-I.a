@@ -23,3 +23,5 @@ header:has(.balance-panel:not(.hidden)){flex-wrap:wrap}.balance-panel:not(.hidde
 .plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}.plan-grid section{margin:0}#higgsfield-signup{color:#efd441}
 
 @media(max-width:1000px){header nav{flex-basis:100%;order:3;overflow-x:auto;max-width:100%}}
+
+#connection{max-width:100%;overflow-wrap:anywhere;line-height:1.5}.hf-identity-form{margin:14px 0}.hf-identity-form button{margin-top:8px}
