@@ -40,3 +40,5 @@ test('preset choice is owner-bound and input-bound, reuses uploads and preserves
 });
 
 test('preset identifier line is sufficient even when decline syntax is formatted differently',()=>{const data=toolData({structuredContent:{notice:'Preset suggestion'},content:[{type:'text',text:'Preset id: 24bae836-2c4a-48e0-89b6-49fcc0b21612\nConfirm your choice.'}]});assert.equal(data.preset_recommendation.preset_id,'24bae836-2c4a-48e0-89b6-49fcc0b21612');});
+
+test('native structured notice carries the exact declined-preset instruction and name',()=>{const id='24bae836-2c4a-48e0-89b6-49fcc0b21612';const d=toolData({structuredContent:{notice:{type:'preset_recommendation',message:'Confirm preset or literal',data:{preset:{id,name:'IN THE DARK'},retry_literal_with:{declined_preset_id:id}}}},content:[]});assert.deepEqual(d.preset_recommendation,{preset_id:id,name:'IN THE DARK'});const bad=toolData({structuredContent:{notice:{type:'preset_recommendation',data:{preset:{id,name:'IN THE DARK'},retry_literal_with:{declined_preset_id:'different'}}}},content:[]});assert.equal(bad.preset_recommendation,undefined);});
