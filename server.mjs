@@ -70,7 +70,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const characters=db.prepare("SELECT * FROM characters WHERE user_id IN (?, 'library') AND deleted=0 ORDER BY name").all(user.id).map(c=>({...c,images:JSON.parse(c.images),labels:JSON.parse(c.labels),favorite:favorite(user.id,'character',c.id)||user.id==='local-owner'&&!!c.favorite}));
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(j=>({...j,outputs:JSON.parse(j.outputs),meta:(()=>{const meta=JSON.parse(j.meta);delete meta.snapshot;return meta;})(),favorite:favorite(user.id,'job',j.id)||user.id==='local-owner'&&!!j.favorite}));
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
-  return {billing:billing.summary(user),testMode,connections:usesCentral(user.id)?[]:connections.list(user.id),mcp:usesCentral(user.id)?{connected:false}:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{central:usesCentral(user.id),configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
+  return {billing:billing.summary(user),testMode,connections:usesCentral(user.id)?[]:connections.list(user.id),mcp:usesCentral(user.id)?{connected:false}:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{central:usesCentral(user.id),configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL,videoPromptLimit:10000,videoPromptOverhead:videoPrompt('','x').length-1},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
  }
 
  function retryRecord(user,id){const j=db.prepare("SELECT * FROM jobs WHERE id=? AND user_id=? AND kind='video'").get(id,user.id);if(!j||!['failed','canceled'].includes(j.status))throw Error('Somente vídeos com falha ou cancelamento podem ser preparados para novo envio.');const parts=db.prepare('SELECT status FROM requests WHERE job_id=?').all(j.id);if(parts.some(p=>['queued','in_progress','materializing','completed','nsfw'].includes(p.status)))throw Error('Há partes em andamento, concluídas ou recusadas. Confira o provedor antes de repetir a geração.');const meta=JSON.parse(j.meta);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status='nsfw' AND json_extract(meta,'$.videoId')=?").get(user.id,meta.videoId))throw Error('Este vídeo foi recusado pelo provedor. Escolha outro material.');return {job:j,meta};}
@@ -119,7 +119,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    changeJob(job.id,'queued');
   }catch(e){
    // Earlier accepted parts remain tracked; do not resubmit them automatically.
-   const hasAccepted=!!db.prepare('SELECT id FROM requests WHERE job_id=?').get(job.id);if(!submitted&&!hasAccepted)billing.release(job.id);
+   const hasAccepted=!!db.prepare('SELECT id FROM requests WHERE job_id=?').get(job.id);if((!submitted||e.definitive)&&!hasAccepted)billing.release(job.id);
    changeJob(job.id,hasAccepted||submitted&&!e.definitive?'uncertain':'failed',hasAccepted||submitted&&!e.definitive?'Resposta incompleta. Confira o console do provedor antes de reenviar.':e.message);
   }
  }
@@ -204,7 +204,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
   administration.observe(res);
-  const publicGet=req.method==='GET'&&['/','/app.js','/billing.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
+  const publicGet=req.method==='GET'&&['/','/app.js','/billing.js','/video-cost.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
   const oauthCallback=req.method==='GET'&&String(req.url||'').split('?')[0]==='/api/mcp/callback';
   const asaasWebhook=req.method==='POST'&&String(req.url||'').split('?')[0]==='/api/billing/webhook';
   if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback&&!asaasWebhook)){json(res,403,{error:'Origem não autorizada.'});return;}
@@ -215,7 +215,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
-   const staticFiles={'/':'index.html','/app.js':'app.js','/billing.js':'billing.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
+   const staticFiles={'/':'index.html','/app.js':'app.js','/billing.js':'billing.js','/video-cost.js':'video-cost.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
    if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.zip')?'application/zip':path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
    if(user.status==='pending'&&!['/api/state','/api/billing/subscribe','/api/billing/sync','/api/billing/cancel'].includes(path))throw error('Conclua o pagamento para liberar o acesso.',403);
@@ -255,7 +255,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
     if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
-    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
+    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);if(input.prompt.length>10000)throw Error('O prompt completo excede 10.000 caracteres. Revise antes de estimar; nenhuma mídia foi enviada.');json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
     if(path==='/api/provider/connect'){if(b.email&&(typeof b.email!=='string'||b.email.length>254||!/^\S+@\S+\.\S+$/.test(b.email.trim())))throw Error('Informe um email válido para identificar a conta.');
      assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
@@ -345,7 +345,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      if(transport==='api'&&!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
      if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
-     const input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution),prompt=input.prompt;
+     const input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution),prompt=input.prompt;if(prompt.length>10000)throw Error('O prompt completo tem '+prompt.length+' caracteres; o Genjutsu aceita até 10.000. Seu texto foi preservado. Revise antes de enviar; nenhuma geração foi iniciada.');
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
      const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,b.prompt,b.withoutProject===true,input),Number(b.maxCredits)):null;
      const j=newJob(user,'video',c.name,c.id,{duration:v.duration,resolution:input.resolution,videoId:v.id,transport,snapshot:input,withoutProject:b.withoutProject===true,...(b.retrySourceId?{sourceJobId:b.retrySourceId}:{}),...(quote?{credits:quote.cost}:{})});
