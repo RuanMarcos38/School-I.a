@@ -196,6 +196,7 @@ document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Ente
 modal.addEventListener('close',()=>{createBatch=null;render();});
 async function loadAdmin(){adminLoading=true;try{adminData=await api('admin/dashboard');if(authInfo?.user?.admin&&location.hash==='#/admin')render();}catch(e){toast(e.message);}finally{adminLoading=false;}}
 function loginScreen(){
+ $('#connection').textContent='Higgsfield';$('#connection').title='Conexão Higgsfield';$('#connection').setAttribute('aria-label','Conexão Higgsfield');
  $('#admin-nav')?.remove();balanceData=null;drawBalance();
  $('#banner').textContent='';$('#banner').classList.add('hidden');
  const setup=authInfo?.setupRequired,register=registrationMode&&!setup;
