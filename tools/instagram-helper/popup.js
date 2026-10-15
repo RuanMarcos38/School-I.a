@@ -1,6 +1,6 @@
 const ACCESS={permissions:['cookies','scripting'],origins:['https://www.instagram.com/*','https://fieldsia.r2rmarketingdigital.com.br/*']};
 const button=document.querySelector('#import'),status=document.querySelector('#status');
-const extensionReady=location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.id&&typeof chrome.permissions?.request==='function'&&typeof chrome.permissions?.remove==='function'&&typeof chrome.scripting?.executeScript==='function'&&typeof chrome.tabs?.query==='function';
+const extensionReady=location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.id&&typeof chrome.permissions?.request==='function'&&typeof chrome.permissions?.remove==='function'&&typeof chrome.tabs?.query==='function';
 if(!extensionReady){
  button.hidden=true;document.querySelector('#installation').hidden=false;
  status.textContent='Este arquivo foi aberto fora da extensão. Instale a pasta no Chrome e use o ícone Fields IA na barra de extensões. Nenhuma sessão foi acessada ou enviada.';
@@ -35,3 +35,4 @@ button.addEventListener('click',async()=>{
 });
 
 }
+
