@@ -31,10 +31,11 @@ function render(){
  if(!authInfo?.user){loginScreen();return;}
  const adminNav=$('#admin-nav');if(adminNav)adminNav.classList.toggle('hidden',!authInfo.user.admin);
  const page=location.hash.slice(2)||'';
- if(page==='admin'){if(!authInfo.user.admin){app.innerHTML='<div class="empty">Acesso exclusivo do administrador.</div>';return;}if(adminData){app.innerHTML=renderAdministration(adminData);}else{app.innerHTML='<div class="empty">Carregando painel…</div>';if(!adminLoading)loadAdmin();}return;}document.title='School IA · '+({personagens:'Personagens',fila:'Fila',galeria:'Galeria',config:'Configurações'}[page]||'Estúdio');
+ document.title='School IA · '+({admin:'Administração',personagens:'Personagens',fila:'Fila',galeria:'Galeria',config:'Configurações'}[page]||'Estúdio');
  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',a.hash===location.hash||(!location.hash&&a.hash==='#/')));
  $('#connection').textContent=state.provider.configured?'Higgsfield · conectado':'Higgsfield · conectar';
  $('#banner').innerHTML=state.testMode?'AMBIENTE DE TESTE · respostas simuladas, sem cobrança ou chamada de geração real.':state.provider.configured?'Integração configurada. As gerações usam o saldo da API Higgsfield.':'Conecte sua chave da API Higgsfield para gerar personagens e vídeos. <a href="#/config">Conectar Higgsfield →</a>';
+ if(page==='admin'){if(!authInfo.user.admin){app.innerHTML='<div class="empty">Acesso exclusivo do administrador.</div>';return;}if(adminData){app.innerHTML=renderAdministration(adminData);}else{app.innerHTML='<div class="empty">Carregando painel…</div>';if(!adminLoading)loadAdmin();}return;}
  if(page==='personagens'){
   app.innerHTML='<div class="toolbar"><h1>Personagens <small class="muted">'+state.characters.length+'</small></h1><input id="search" aria-label="Buscar personagem" placeholder="⌕ Buscar personagem" value="'+esc(query)+'"><button class="primary" data-action="create">+ Criar personagem</button></div><div class="library"><aside class="folders">'+tabs(['Todos','★','Biblioteca','Criados'],filter,'filter')+'<button data-action="folder" data-value="">Todos '+state.characters.length+'</button>'+state.folders.map(f=>'<div class="folder-row"><button data-action="folder" data-value="'+esc(f)+'">'+esc(f)+'</button><button data-action="renamefolder" data-value="'+esc(f)+'" aria-label="Renomear '+esc(f)+'">✎</button></div>').join('')+'<button data-action="newfolder">+ Nova pasta</button></aside><section>'+cards()+'</section></div>';return;
  }
