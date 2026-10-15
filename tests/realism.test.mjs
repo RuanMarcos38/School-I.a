@@ -7,7 +7,10 @@ test('realism guidance reaches cards, views and custom video instructions',()=>{
  const video=videoPrompt('adult','Replace the foreground dancer only');
  assert.ok(video.includes(VIDEO_REALISM));assert.ok(video.endsWith('Replace the foreground dancer only'));
  assert.ok(viewPrompt('adult','profile').includes('right side profile'));
- assert.throws(()=>videoPrompt('adult','x'.repeat(10001)),/10.000/);
+ const long='Cena com acentuação, rosto e movimento. '.repeat(10000)+'FIM SEM CORTE';
+ assert.ok(videoPrompt('adult',long).endsWith(long));
+ assert.ok(characterPrompt(long).endsWith(long));
+ assert.ok(viewPrompt(long,'profile').endsWith(long));
 });
 test('feature switch restores the previous video prompt without altering scene text',()=>{
  const previous=process.env.HUMAN_REALISM_ENABLED;

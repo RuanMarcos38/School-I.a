@@ -221,7 +221,8 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     return;
    }
    if(path.startsWith('/api/')&&req.method==='POST'){
-    const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:64*1024);
+    const promptRoute=['/api/generate','/api/generate-images','/api/characters','/api/mcp/video-estimate','/api/library/descriptions'].includes(path);
+    const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:promptRoute?8*1024*1024:64*1024);
     if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
     if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
     if(path==='/api/connections/select'){assertAccountChange(user.id);const result=connections.select(user.id,String(b.id));json(res,200,result);return;}
@@ -250,7 +251,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/provider/verify'){await call(user.id,'/models/higgsfield/genjutsu/restyle/v1.0/presets');db.prepare('UPDATE settings SET verified=? WHERE user_id=?').run(new Date().toISOString(),user.id);json(res,200,{ok:true});return;}
     if(path==='/api/characters'){
-     const name=String(b.name||'').trim(),description=String(b.description||'');if(!name||name.length>100||description.length>10000)throw Error('Nome ou descrição inválidos.');
+     const name=String(b.name||'').trim(),description=String(b.description||'');if(!name||name.length>100)throw Error('Nome ou descrição inválidos.');
      const images=validateReferences(b.images,user.id);if(!images.length)throw Error('Adicione pelo menos uma imagem.');
      if(b.folder&&!db.prepare('SELECT name FROM user_folders WHERE user_id=? AND name=?').get(user.id,b.folder))throw Error('Pasta não encontrada.');
      const existing=b.id&&findCharacter(b.id,user.id);if(b.id&&(!existing||existing.user_id!==user.id))throw error('Personagem da biblioteca é somente leitura.',403);
@@ -328,7 +329,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/generate-images'){
      if(!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const name=String(b.name||'').trim(),description=String(b.description||'').trim(),options=Number(b.options||2);
-     if(!name||name.length>100||!description||description.length>8000||!Number.isInteger(options)||options<1||options>4)throw Error('Informe nome, descrição e de 1 a 4 opções.');
+     if(!name||name.length>100||!description||!Number.isInteger(options)||options<1||options>4)throw Error('Informe nome, descrição e de 1 a 4 opções.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n+options>8)throw Error('Aguarde a fila antes de gerar todas as opções.');
      const quality=b.quality||'standard',framing=b.framing||'portrait';imageSettings(quality);characterPrompt(description,framing);
      const references=validateReferences(b.references||[],user.id,3),batch=randomUUID(),ids=[];
