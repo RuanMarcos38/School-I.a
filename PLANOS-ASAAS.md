@@ -1,6 +1,6 @@
 # API central e mensalidades
 
-A API central é uma opção reversível do administrador. Ela referencia a chave cifrada já cadastrada pelo administrador; não copia a chave para perfis de clientes. As conexões individuais permanecem salvas. O modo central exige franquia válida para clientes e não muda a aprovação de acesso. Administradores continuam com a conta própria, sem franquia de cliente.
+A API central é uma opção reversível do administrador. Ela referencia a chave cifrada já cadastrada pelo administrador; não copia a chave para perfis de clientes. As conexões individuais permanecem salvas. O modo central exige franquia válida para clientes. Com a automação de pagamento ativa, cadastros pendentes são aprovados após confirmação financeira; suspensões e rejeições explícitas não são sobrescritas. Administradores continuam com a conta própria, sem franquia de cliente.
 
 ## Proposta comercial inicial — 15/10/2026
 
@@ -20,7 +20,7 @@ Antes de ampliar vendas, medir o custo efetivo do Genjutsu e das imagens na pró
 
 Conectar em Administração usando o campo protegido, escolhendo sandbox ou produção. A chave é validada por consulta de saldo e cifrada no volume privado. O painel não retorna a chave nem o token de webhook. Após conectar, registrar webhook pelo botão próprio. URL: `https://fieldsia.r2rmarketingdigital.com.br/api/billing/webhook`.
 
-O cliente escolhe plano e aceita mensalidade/envio de dados do pagador, informa CPF/CNPJ e recebe uma cobrança hospedada no Asaas. O Fields IA não coleta cartão. Pix/boleto exigem pagar a cobrança de cada ciclo; isso não é débito automático Pix. O valor e a franquia são determinados no servidor. Não há envio de notificações próprias por email.
+O cliente escolhe plano e aceita mensalidade/envio de dados do pagador, informa CPF/CNPJ e recebe uma cobrança hospedada no Asaas. O Fields IA não coleta cartão. Pix/boleto exigem pagar a cobrança de cada ciclo; isso não é débito automático Pix. O valor e a franquia são determinados no servidor. O envio transacional de confirmação e boas-vindas é feito pelo fluxo n8n exclusivo, quando configurado.
 
 Webhooks usam token aleatório independente no cabeçalho `asaas-access-token`, validação em tempo constante, deduplicação por evento e pagamento, consulta do pagamento na API Asaas e conferência de cliente, assinatura, valor e ambiente. Somente pagamentos recebidos/confirmados em produção liberam franquia. Sandbox nunca libera créditos reais. Estorno/chargeback bloqueia o lote correspondente. Cancelar a renovação preserva o período pago.
 
