@@ -10,6 +10,6 @@ As conexões existentes são preservadas como Conta atual. Os nomes são definid
 
 Trocas ficam bloqueadas enquanto houver solicitações pendentes, incluindo montagem e estado incerto. Ao trocar MCP, as estimativas anteriores são invalidadas: estime novamente antes de gerar. API e MCP podem ter saldos diferentes.
 
-Desconectar e remover contas apaga as credenciais salvas daquele tipo neste servidor, sem alterar os personagens ou vídeos.
+Desconectar pausa o uso daquela conexão e preserva as contas, chaves e tokens cifrados. Selecione uma conta salva para reconectar. Nenhuma chave é revogada ou removida no provedor. Autorizações expiradas ou revogadas no próprio Higgsfield podem precisar de nova autorização.
 
 Validação: 33 testes automatizados aprovados, incluindo seleção API, captura de tokens MCP renovados, isolamento por usuário, cancelamento de autorização e bloqueio da troca durante solicitações pendentes. Não foi autorizada uma segunda conta real nem iniciada geração paga nesta alteração.

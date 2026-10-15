@@ -45,9 +45,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault,beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault,isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
  function assertAccountChange(user){if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
- const getKey=userId=>{const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
+ const getKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
  const findMedia=(id,userId)=>db.prepare("SELECT * FROM media WHERE id=? AND user_id IN (?, 'library')").get(id,userId);
  const findCharacter=(id,userId)=>db.prepare("SELECT * FROM characters WHERE id=? AND user_id IN (?, 'library') AND deleted=0").get(id,userId);
@@ -206,7 +206,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/mcp/catalog'&&req.method==='GET'){json(res,200,await mcp.catalog(user.id));return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
-   if(path==='/api/health'&&req.method==='GET'){json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
+   if(path==='/api/health'&&req.method==='GET'){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
    if(path.startsWith('/media/')&&req.method==='GET'){
     const m=findMedia(path.slice(7),user.id);if(!m)throw error('Arquivo não encontrado.',404);
     streamMedia(req,res,join(dataDir,'media',m.id),m.type,{download:url.searchParams.has('download'),name:'school-'+m.id+'.'+(types[m.type]||'bin')});return;
@@ -247,9 +247,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/provider/disconnect'){assertAccountChange(user.id);
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id).n)throw Error('Há solicitações pendentes. Resolva a fila antes de desconectar.');
-     db.prepare('DELETE FROM settings WHERE user_id=?').run(user.id);connections.disconnect(user.id,'api');json(res,200,{ok:true});return;
+     connections.disconnect(user.id,'api');json(res,200,{ok:true});return;
     }
-    if(path==='/api/provider/verify'){await call(user.id,'/models/higgsfield/genjutsu/restyle/v1.0/presets');db.prepare('UPDATE settings SET verified=? WHERE user_id=?').run(new Date().toISOString(),user.id);json(res,200,{ok:true});return;}
+    if(path==='/api/provider/verify'){if(!getKey(user.id))throw error('Conecte uma conta Higgsfield em Configurações.',503);await call(user.id,'/models/higgsfield/genjutsu/restyle/v1.0/presets');db.prepare('UPDATE settings SET verified=? WHERE user_id=?').run(new Date().toISOString(),user.id);json(res,200,{ok:true});return;}
     if(path==='/api/characters'){
      const name=String(b.name||'').trim(),description=String(b.description||'');if(!name||name.length>100)throw Error('Nome ou descrição inválidos.');
      const images=validateReferences(b.images,user.id);if(!images.length)throw Error('Adicione pelo menos uma imagem.');
