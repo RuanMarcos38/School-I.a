@@ -92,3 +92,30 @@ input[type=checkbox]:not(#prompt-toggle){width:18px;height:18px;flex-shrink:0;ac
 
 .character-description{min-width:0}.character-description p{overflow-wrap:anywhere}
 .prompt-limit-alert{padding:12px;border:1px solid #b58b37;border-radius:12px;background:#302515;color:#ffe0a0;line-height:1.45;margin:8px 0 12px;overflow-wrap:anywhere}.prompt-limit-alert p{margin:0 0 8px}.prompt-limit-alert button{padding:7px 10px;font-size:12px;background:#44351b;color:#ffe0a0}.prompt textarea[aria-invalid="true"]{border-color:#d4a447}
+
+/* Studio uses document scrolling so generation settings cannot be squeezed
+   behind the MCP summary on shorter screens. */
+.studio{height:auto;min-height:0;align-items:start;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+.studio .panel{min-height:0}
+.studio .panel h2{flex-shrink:0}
+.studio .inner{flex:0 0 auto;overflow:visible;min-width:0}
+.studio .panel:not(:nth-child(3)) .inner{max-height:700px;overflow:auto}
+.studio .panel:nth-child(3) .inner{display:flex;flex-direction:column;gap:16px}
+.studio .model{display:flex;flex-direction:column;gap:10px;padding:16px}
+.studio .model label,.studio .model strong,.studio .model small{margin:0;line-height:1.5}
+.studio .model select{flex-shrink:0}
+.studio .prompt{margin:0;padding:16px}
+.studio .prompt textarea{margin-top:12px;min-height:180px;line-height:1.6}
+.studio .bottom{display:flex;flex-direction:column;gap:14px;padding:18px 16px;flex-shrink:0}
+.studio .bottom>p{margin:0;line-height:1.6}
+.studio .bottom>.check{align-items:flex-start;gap:10px;line-height:1.5;padding:12px;background:#101114;border:1px solid #303136;border-radius:12px}
+.studio .bottom>.check input{margin:2px 0 0}
+.studio .bottom>button{width:100%;line-height:1.4;white-space:normal}
+.studio .bottom .prompt-limit-alert{margin:0}
+.studio .inline{gap:8px;margin:12px 0}
+.studio .inner>button[data-action="instagramhelp"]{width:100%;line-height:1.5}
+.studio .inner>p{overflow-wrap:anywhere;line-height:1.6}
+.studio .job .actions{gap:10px;margin-top:18px}
+#toast{bottom:auto;top:18px;max-width:min(600px,calc(100vw - 32px));pointer-events:none}
+@media(max-width:1450px){.studio{grid-template-columns:repeat(2,minmax(0,1fr))}.studio .panel{min-height:0}.studio .panel:not(:nth-child(3)) .inner{max-height:620px}.studio .panel .bottom{margin-top:0}.studio .cards.compact{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}
+@media(max-width:700px){.studio{grid-template-columns:minmax(0,1fr);gap:16px}.studio .panel:not(:nth-child(3)) .inner{max-height:560px}.studio .inner{min-height:0}.studio .bottom{padding:16px}.studio .cards.compact{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}}
