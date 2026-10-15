@@ -91,3 +91,4 @@ input[type=checkbox]:not(#prompt-toggle){width:18px;height:18px;flex-shrink:0;ac
 .admin-dashboard{max-width:1200px}.admin-dashboard~.settings{max-width:1200px}.admin-form-grid>div,.library>section{min-width:0}.library>.folders{background:#14151a;border:1px solid #303136;border-radius:16px;color:#b8bac4;padding:14px}.folders .tabs{flex-shrink:0}
 
 .character-description{min-width:0}.character-description p{overflow-wrap:anywhere}
+.prompt-limit-alert{padding:12px;border:1px solid #b58b37;border-radius:12px;background:#302515;color:#ffe0a0;line-height:1.45;margin:8px 0 12px;overflow-wrap:anywhere}.prompt-limit-alert p{margin:0 0 8px}.prompt-limit-alert button{padding:7px 10px;font-size:12px;background:#44351b;color:#ffe0a0}.prompt textarea[aria-invalid="true"]{border-color:#d4a447}
