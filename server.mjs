@@ -257,7 +257,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
     if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
-    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);if(input.prompt.length>10000)throw Error('O prompt completo excede 10.000 caracteres. Revise antes de estimar; nenhuma mídia foi enviada.');json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
+    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);if(input.prompt.length>10000)throw Error('O prompt completo excede 10.000 caracteres. Revise antes de estimar; nenhuma mídia foi enviada.');const quote=await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input),{choiceId:b.choiceId,literal:b.literal===true});if(quote.choiceRequired&&b.supportsPresetChoice!==true)throw Error('O Higgsfield sugeriu o efeito '+quote.presetName+'. Seu prompt foi preservado. Atualize a página para escolher Manter meu prompt. Nenhuma geração foi iniciada.');json(res,200,quote);return;}
     if(path==='/api/provider/connect'){if(b.email&&(typeof b.email!=='string'||b.email.length>254||!/^\S+@\S+\.\S+$/.test(b.email.trim())))throw Error('Informe um email válido para identificar a conta.');
      assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
@@ -424,4 +424,3 @@ if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
  if(!localMode&&!process.env.PUBLIC_ORIGIN)throw Error('PUBLIC_ORIGIN é obrigatório no modo com login.');
  createApp({localMode}).listen(port,localMode?'127.0.0.1':'0.0.0.0',()=>console.log('School IA: http://localhost:'+port+' · '+(localMode?'modo local':'modo com login')));
 }
-
