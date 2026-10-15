@@ -1,3 +1,4 @@
+import {createNotifications} from './lib/notifications.mjs';
 import {createBilling} from './lib/billing.mjs';
 import {createBalanceReader} from './lib/balance.mjs';
 import {createAdministration} from './lib/admin.mjs';
@@ -21,7 +22,7 @@ const root=dirname(fileURLToPath(import.meta.url));
 const active=['uploading','submitting','queued','in_progress','assembling','uncertain'];
 const terminal=['completed','failed','nsfw','canceled'];
 function error(message,status=400){const e=Error(message);e.status=status;return e;}
-export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
+export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,billingFetch=fetch,emailFetch=fetch,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
  mkdirSync(join(dataDir,'media'),{recursive:true});mkdirSync(join(dataDir,'processing'),{recursive:true});
  const db=new DatabaseSync(join(dataDir,'school.sqlite'));
  db.exec('CREATE TABLE IF NOT EXISTS imported_links(user_id TEXT,url TEXT,media_id TEXT,PRIMARY KEY(user_id,url));');
@@ -47,10 +48,10 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault,isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode,allowPendingLogin:()=>billing.autoApproval()}),mcp=createMcpGateway({db,vault,isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
  function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
- const billing=createBilling(db,vault);
+ const notifications=createNotifications(db,vault,{request:emailFetch}),billing=createBilling(db,vault,{request:billingFetch,notify:notifications.enqueue});
  const usesCentral=userId=>billing.central().enabled&&!db.prepare('SELECT admin FROM users WHERE id=?').get(userId)?.admin;
  const getKey=userId=>{if(usesCentral(userId))return billing.centralKey();return personalKey(userId);};
  const personalKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
@@ -64,7 +65,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.prepare('INSERT INTO media(id,type,size,duration,user_id,width,height) VALUES(?,?,?,?,?,?,?)').run(id,info.type,statSync(dest).size,info.duration||0,userId,info.width||0,info.height||0);
   return {id,url:'/media/'+id,...info,label};
  }
- function state(user){
+ function state(user){if(user.status==='pending')return {user:auth.safe(user),billing:billing.summary(user),characters:[],jobs:[],connections:[],folders:[],provider:{configured:false,central:true},mcp:{connected:false},tools:{},testMode};
   const characters=db.prepare("SELECT * FROM characters WHERE user_id IN (?, 'library') AND deleted=0 ORDER BY name").all(user.id).map(c=>({...c,images:JSON.parse(c.images),labels:JSON.parse(c.labels),favorite:favorite(user.id,'character',c.id)||user.id==='local-owner'&&!!c.favorite}));
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(j=>({...j,outputs:JSON.parse(j.outputs),meta:(()=>{const meta=JSON.parse(j.meta);delete meta.snapshot;return meta;})(),favorite:favorite(user.id,'job',j.id)||user.id==='local-owner'&&!!j.favorite}));
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
@@ -179,6 +180,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   }finally{polling=false;}
  }
  const timer=setInterval(()=>launch(poll),pollInterval);timer.unref();
+ const emailTimer=setInterval(()=>launch(notifications.flush),10000);emailTimer.unref();
  async function body(req,max=64*1024){
   let size=0,parts=[];for await(const part of req){size+=part.length;if(size>max)throw error('Solicitação muito grande.',413);parts.push(part);}
   try{return JSON.parse(Buffer.concat(parts).toString()||'{}');}catch{throw error('Dados inválidos.');}
@@ -208,14 +210,15 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   if(!asaasWebhook&&!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
   try{
    const url=new URL(req.url,origin),path=url.pathname,user=auth.read(req);
-   if(asaasWebhook){json(res,200,await billing.webhook(req.headers['asaas-access-token'],await body(req,256*1024)));return;}
+   if(asaasWebhook){json(res,200,await billing.webhook(req.headers['asaas-access-token'],await body(req,256*1024)));launch(notifications.flush);return;}
    if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
    const staticFiles={'/':'index.html','/app.js':'app.js','/billing.js':'billing.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
    if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.zip')?'application/zip':path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
-   if(path.startsWith('/api/admin/')){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);if(path==='/api/admin/dashboard'&&req.method==='GET'){json(res,200,{...administration.dashboard(),billing:billing.admin()});return;}if(req.method==='POST'){const input=await body(req);if(path==='/api/admin/central'){if(db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Resolva as gerações pendentes antes de alterar a API central.');billing.configureCentral(user.id,input);json(res,200,{ok:true});return;}if(path==='/api/admin/asaas'){json(res,200,await billing.configureAsaas(input));return;}if(path==='/api/admin/asaas-webhook'){json(res,200,await billing.webhookSetup(origin,user.email));return;}if(path==='/api/admin/access'){json(res,200,administration.access(user.id,String(input.id),input.status));return;}if(path==='/api/admin/payments'){json(res,201,administration.payment(user.id,input));return;}if(path==='/api/admin/payment-status'){json(res,200,administration.paymentStatus(user.id,String(input.id),input.status));return;}}throw error('Operação administrativa não encontrada.',404);}
+   if(user.status==='pending'&&!['/api/state','/api/billing/subscribe','/api/billing/sync','/api/billing/cancel'].includes(path))throw error('Conclua o pagamento para liberar o acesso.',403);
+   if(path.startsWith('/api/admin/')){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);if(path==='/api/admin/dashboard'&&req.method==='GET'){json(res,200,{...administration.dashboard(),billing:{...billing.admin(),email:notifications.status()}});return;}if(req.method==='POST'){const input=await body(req);if(path==='/api/admin/payment-automation'){billing.configureAutomation(input.enabled);json(res,200,{ok:true});return;}if(path==='/api/admin/email'){notifications.configure(input);json(res,200,{ok:true});launch(notifications.flush);return;}if(path==='/api/admin/email-test'){notifications.enqueue('test:'+randomUUID(),user,{test:true,plan:'Teste de configuração',credits:0,amountCents:0,expires:new Date().toISOString(),allowed:true,first:true});await notifications.flush();json(res,200,notifications.status());return;}if(path==='/api/admin/central'){if(db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Resolva as gerações pendentes antes de alterar a API central.');billing.configureCentral(user.id,input);json(res,200,{ok:true});return;}if(path==='/api/admin/asaas'){json(res,200,await billing.configureAsaas(input));return;}if(path==='/api/admin/asaas-webhook'){json(res,200,await billing.webhookSetup(origin,user.email));return;}if(path==='/api/admin/access'){json(res,200,administration.access(user.id,String(input.id),input.status));return;}if(path==='/api/admin/payments'){json(res,201,administration.payment(user.id,input));return;}if(path==='/api/admin/payment-status'){json(res,200,administration.paymentStatus(user.id,String(input.id),input.status));return;}}throw error('Operação administrativa não encontrada.',404);}
    if(path==='/api/mcp/catalog'&&req.method==='GET'){json(res,200,await mcp.catalog(user.id));return;}
    if(path==='/api/balance'&&req.method==='GET'){json(res,200,{mcp:await balance(user.id,{force:url.searchParams.get('refresh')==='1'}),api:{status:getKey(user.id)?'console':'disconnected',url:'https://open.higgsfield.ai/billing'},refreshSeconds:30});return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
@@ -238,7 +241,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     const promptRoute=['/api/generate','/api/generate-images','/api/characters','/api/mcp/video-estimate','/api/library/descriptions'].includes(path);
     const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:promptRoute?8*1024*1024:64*1024);
     if(path==='/api/billing/subscribe'){json(res,201,await billing.subscribe(user,b));return;}
-    if(path==='/api/billing/sync'){json(res,200,await billing.syncOrder(user,String(b.id)));return;}
+    if(path==='/api/billing/sync'){json(res,200,await billing.syncOrder(user,String(b.id)));launch(notifications.flush);return;}
     if(path==='/api/billing/cancel'){json(res,200,await billing.cancel(user,String(b.id)));return;}
     if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
     if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
@@ -390,7 +393,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  });
  // A restart never retries a billable submission automatically.
  db.prepare("UPDATE jobs SET status='uncertain',error='Processo interrompido. Confira a solicitação no console antes de reenviar.' WHERE status IN ('uploading','submitting')").run();
- server.on('close',()=>{closed=true;clearInterval(timer);Promise.allSettled([...background]).finally(()=>db.close());});
+ server.on('close',()=>{closed=true;clearInterval(timer);clearInterval(emailTimer);Promise.allSettled([...background]).finally(()=>db.close());});
  server.school={db,poll,state,background};
  return server;
 }

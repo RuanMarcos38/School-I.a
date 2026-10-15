@@ -1,0 +1,207 @@
+{
+  "name": "Fields IA · Pagamento confirmado e boas-vindas",
+  "active": false,
+  "nodes": [
+    {
+      "id": "e275c18f-f2da-45e5-a9d8-0f4cf6dfc903",
+      "name": "Receber Fields IA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fieldsia-email-confirmacao",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "beb700ef-d6e7-41fb-8e7c-20ed2be66b8e",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "yIzPoAeSv69Woi48",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "id": "591ef052-df09-45ef-bfdf-91257f7e6ba9",
+      "name": "Validar e deduplicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const b=$json.body;if(!b||typeof b.eventId!=='string'||b.eventId.length>200||typeof b.to!=='string'||!/^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]+$/.test(b.to)||typeof b.subject!=='string'||/[\\r\\n]/.test(b.subject)||b.subject.length>200||typeof b.html!=='string'||b.html.length>100000||typeof b.text!=='string')throw new Error('Evento inválido');const s=$getWorkflowStaticData('global');s.sent=s.sent||{};return [{json:{...b,duplicate:!!s.sent[b.eventId]}}];"
+      }
+    },
+    {
+      "id": "687685c8-4a76-4798-972c-7e4cb59afdfe",
+      "name": "Ja enviado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0668295a-453d-4fac-9e90-427c4147588b",
+              "leftValue": "={{ $json.duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2b4e8b3a-8ff9-47ab-85bf-751904977caa",
+      "name": "Enviar confirmacao SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        140
+      ],
+      "parameters": {
+        "fromEmail": "Fields IA <contato@r2rmarketingdigital.com.br>",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "contato@r2rmarketingdigital.com.br"
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "bO5vjwnva1tsnPVH",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "id": "8c48d77a-b1d0-4c3b-9ddb-0a7f9e685a45",
+      "name": "Registrar envio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        140
+      ],
+      "parameters": {
+        "jsCode": "const b=$('Validar e deduplicar').first().json;const s=$getWorkflowStaticData('global');s.sent=s.sent||{};s.sent[b.eventId]=Date.now();for(const [id,t]of Object.entries(s.sent))if(Date.now()-t>90*86400000)delete s.sent[id];return [{json:{id:b.eventId,accepted:true}}];"
+      }
+    },
+    {
+      "id": "b92c6fc3-1334-42ee-9e16-b6ebb342668a",
+      "name": "Confirmar recebimento",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { id: $json.id || $json.eventId, accepted: true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receber Fields IA": {
+      "main": [
+        [
+          {
+            "node": "Validar e deduplicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar e deduplicar": {
+      "main": [
+        [
+          {
+            "node": "Ja enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ja enviado": {
+      "main": [
+        [
+          {
+            "node": "Confirmar recebimento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar confirmacao SMTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar confirmacao SMTP": {
+      "main": [
+        [
+          {
+            "node": "Registrar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar envio": {
+      "main": [
+        [
+          {
+            "node": "Confirmar recebimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 60
+  },
+  "pinData": {}
+}
