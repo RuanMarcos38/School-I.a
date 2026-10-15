@@ -1,3 +1,4 @@
+import {videoResolution} from './lib/video-settings.mjs';
 import {createNotifications} from './lib/notifications.mjs';
 import {createBilling} from './lib/billing.mjs';
 import {createBalanceReader} from './lib/balance.mjs';
@@ -73,13 +74,13 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  }
 
  function retryRecord(user,id){const j=db.prepare("SELECT * FROM jobs WHERE id=? AND user_id=? AND kind='video'").get(id,user.id);if(!j||!['failed','canceled'].includes(j.status))throw Error('Somente vídeos com falha ou cancelamento podem ser preparados para novo envio.');const parts=db.prepare('SELECT status FROM requests WHERE job_id=?').all(j.id);if(parts.some(p=>['queued','in_progress','materializing','completed','nsfw'].includes(p.status)))throw Error('Há partes em andamento, concluídas ou recusadas. Confira o provedor antes de repetir a geração.');const meta=JSON.parse(j.meta);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status='nsfw' AND json_extract(meta,'$.videoId')=?").get(user.id,meta.videoId))throw Error('Este vídeo foi recusado pelo provedor. Escolha outro material.');return {job:j,meta};}
- function generationInput(user,c,v,prompt,source){if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');let snapshot=null;if(source){const old=retryRecord(user,String(source));if(old.job.character_id!==c.id||old.meta.videoId!==v.id)throw Error('O vídeo ou personagem foi alterado. Prepare o novo envio novamente.');snapshot=old.meta.snapshot;}
- const promptText=String(prompt||''),description=snapshot?.description??c.description,references=snapshot?.references??JSON.parse(c.images).slice(0,5);if(references.some(id=>!findMedia(id,user.id)))throw Error('Uma referência do envio original não está disponível.');return {promptText,description,references,prompt:snapshot&&promptText===snapshot.promptText?snapshot.prompt:videoPrompt(description,promptText)};}
+ function generationInput(user,c,v,prompt,source,resolution){resolution=videoResolution(resolution);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');let snapshot=null;if(source){const old=retryRecord(user,String(source));if(old.job.character_id!==c.id||old.meta.videoId!==v.id)throw Error('O vídeo ou personagem foi alterado. Prepare o novo envio novamente.');snapshot=old.meta.snapshot;}
+ const promptText=String(prompt||''),description=snapshot?.description??c.description,references=snapshot?.references??JSON.parse(c.images).slice(0,5);if(references.some(id=>!findMedia(id,user.id)))throw Error('Uma referência do envio original não está disponível.');return {resolution,promptText,description,references,prompt:snapshot&&promptText===snapshot.promptText?snapshot.prompt:videoPrompt(description,promptText)};}
  function mcpInput(c,v,prompt,withoutProject=false,resolved){
   if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
   if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
   prompt=resolved?.prompt||videoPrompt(c.description,prompt);
-  return {withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},references:(resolved?.references||JSON.parse(c.images).slice(0,5)).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
+  return {resolution:videoResolution(resolved?.resolution),withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},references:(resolved?.references||JSON.parse(c.images).slice(0,5)).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
  }
  async function submitMcp(job,quote){let sent=false;try{changeJob(job.id,'submitting');sent=true;const result=await mcp.generate(job.user_id,quote);if(!/^[a-zA-Z0-9_-]{1,200}$/.test(result.request_id))throw Error('Identificador MCP inválido.');db.prepare('INSERT INTO requests(id,job_id,part,status) VALUES(?,?,0,?)').run(result.request_id,job.id,'queued');db.prepare('UPDATE jobs SET request_id=? WHERE id=?').run(result.request_id,job.id);changeJob(job.id,'queued');}catch(e){changeJob(job.id,sent&&!e.definitive?'uncertain':'failed',sent&&!e.definitive?'Resposta MCP incompleta. Confira o Higgsfield antes de reenviar.':e.message);}}
 
@@ -105,7 +106,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(job.kind==='video'){
     const m=findMedia(inputs.videoId,job.user_id),dir=join(dataDir,'processing',job.id);mkdirSync(dir,{recursive:true});
     const files=await split(join(dataDir,'media',m.id),dir,m.duration);payloads=[];
-    for(const file of files)payloads.push({video_url:await uploadPath(job.user_id,file,'video/mp4'),image_urls:refs,prompt:inputs.prompt,resolution:'1080p'});
+    for(const file of files)payloads.push({video_url:await uploadPath(job.user_id,file,'video/mp4'),image_urls:refs,prompt:inputs.prompt,resolution:videoResolution(inputs.resolution)});
    }else payloads=[{prompt:inputs.prompt,image_urls:refs,...imageSettings(inputs.quality)}];
    changeJob(job.id,'submitting');
    for(let i=0;i<payloads.length;i++){
@@ -254,7 +255,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
     if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
-    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
+    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);json(res,200,await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input)));return;}
     if(path==='/api/provider/connect'){if(b.email&&(typeof b.email!=='string'||b.email.length>254||!/^\S+@\S+\.\S+$/.test(b.email.trim())))throw Error('Informe um email válido para identificar a conta.');
      assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
@@ -337,18 +338,18 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      }finally{try{unlinkSync(temp);}catch{}}
      return;
     }
-    if(path==='/api/jobs/reuse-video'){const old=retryRecord(user,String(b.id)),v=findMedia(old.meta.videoId,user.id),c=findCharacter(old.job.character_id,user.id);if(!v||!existsSync(join(dataDir,'media',v.id))||!c)throw Error('O vídeo ou personagem original não está mais disponível.');json(res,200,{sourceId:old.job.id,characterId:c.id,video:{id:v.id,type:v.type,duration:v.duration,width:v.width,height:v.height,size:v.size,url:'/media/'+v.id,name:'Vídeo do envio anterior'},promptText:old.meta.snapshot?.promptText??null,transport:old.meta.transport||'api',withoutProject:old.meta.withoutProject===true,hasSnapshot:!!old.meta.snapshot});return;}
+    if(path==='/api/jobs/reuse-video'){const old=retryRecord(user,String(b.id)),v=findMedia(old.meta.videoId,user.id),c=findCharacter(old.job.character_id,user.id);if(!v||!existsSync(join(dataDir,'media',v.id))||!c)throw Error('O vídeo ou personagem original não está mais disponível.');json(res,200,{sourceId:old.job.id,characterId:c.id,video:{id:v.id,type:v.type,duration:v.duration,width:v.width,height:v.height,size:v.size,url:'/media/'+v.id,name:'Vídeo do envio anterior'},promptText:old.meta.snapshot?.promptText??null,resolution:old.meta.resolution||old.meta.snapshot?.resolution||'1080p',transport:old.meta.transport||'api',withoutProject:old.meta.withoutProject===true,hasSnapshot:!!old.meta.snapshot});return;}
     if(path==='/api/generate'){
      const transport=b.transport||'api';if(!['api','mcp'].includes(transport))throw Error('Conexão inválida.');
      if(transport==='mcp'&&mcp.state(user.id).pending)throw Error('Conclua ou cancele a troca de conta MCP antes de gerar.');
      if(transport==='api'&&!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
      const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id);if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
      if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
-     const input=generationInput(user,c,v,b.prompt,b.retrySourceId),prompt=input.prompt;
+     const input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution),prompt=input.prompt;
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
      const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,b.prompt,b.withoutProject===true,input),Number(b.maxCredits)):null;
-     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,videoId:v.id,transport,snapshot:input,withoutProject:b.withoutProject===true,...(b.retrySourceId?{sourceJobId:b.retrySourceId}:{}),...(quote?{credits:quote.cost}:{})});
-     launch(()=>quote?submitMcp(j,quote):submit(j,{references:input.references,videoId:v.id,prompt}));json(res,202,{id:j.id});return;
+     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,resolution:input.resolution,videoId:v.id,transport,snapshot:input,withoutProject:b.withoutProject===true,...(b.retrySourceId?{sourceJobId:b.retrySourceId}:{}),...(quote?{credits:quote.cost}:{})});
+     launch(()=>quote?submitMcp(j,quote):submit(j,{references:input.references,videoId:v.id,prompt,resolution:input.resolution}));json(res,202,{id:j.id});return;
     }
     if(path==='/api/generate-images'){
      if(!getKey(user.id))throw error('Conecte sua chave Higgsfield em Configurações.',503);
