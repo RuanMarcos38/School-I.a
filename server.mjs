@@ -1,3 +1,4 @@
+import {createBilling} from './lib/billing.mjs';
 import {createBalanceReader} from './lib/balance.mjs';
 import {createAdministration} from './lib/admin.mjs';
 import {createConnections} from './lib/connections.mjs';
@@ -47,9 +48,12 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
  const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode}),mcp=createMcpGateway({db,vault,isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
- function assertAccountChange(user){if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
+ function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
- const getKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
+ const billing=createBilling(db,vault);
+ const usesCentral=userId=>billing.central().enabled&&!db.prepare('SELECT admin FROM users WHERE id=?').get(userId)?.admin;
+ const getKey=userId=>{if(usesCentral(userId))return billing.centralKey();return personalKey(userId);};
+ const personalKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
  const findMedia=(id,userId)=>db.prepare("SELECT * FROM media WHERE id=? AND user_id IN (?, 'library')").get(id,userId);
  const findCharacter=(id,userId)=>db.prepare("SELECT * FROM characters WHERE id=? AND user_id IN (?, 'library') AND deleted=0").get(id,userId);
@@ -64,7 +68,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const characters=db.prepare("SELECT * FROM characters WHERE user_id IN (?, 'library') AND deleted=0 ORDER BY name").all(user.id).map(c=>({...c,images:JSON.parse(c.images),labels:JSON.parse(c.labels),favorite:favorite(user.id,'character',c.id)||user.id==='local-owner'&&!!c.favorite}));
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(j=>({...j,outputs:JSON.parse(j.outputs),meta:(()=>{const meta=JSON.parse(j.meta);delete meta.snapshot;return meta;})(),favorite:favorite(user.id,'job',j.id)||user.id==='local-owner'&&!!j.favorite}));
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
-  return {testMode,connections:connections.list(user.id),mcp:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
+  return {billing:billing.summary(user),testMode,connections:connections.list(user.id),mcp:mcp.state(user.id),user:auth.safe(user),characters,jobs,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{central:usesCentral(user.id),configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
  }
 
  function retryRecord(user,id){const j=db.prepare("SELECT * FROM jobs WHERE id=? AND user_id=? AND kind='video'").get(id,user.id);if(!j||!['failed','canceled'].includes(j.status))throw Error('Somente vídeos com falha ou cancelamento podem ser preparados para novo envio.');const parts=db.prepare('SELECT status FROM requests WHERE job_id=?').all(j.id);if(parts.some(p=>['queued','in_progress','materializing','completed','nsfw'].includes(p.status)))throw Error('Há partes em andamento, concluídas ou recusadas. Confira o provedor antes de repetir a geração.');const meta=JSON.parse(j.meta);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status='nsfw' AND json_extract(meta,'$.videoId')=?").get(user.id,meta.videoId))throw Error('Este vídeo foi recusado pelo provedor. Escolha outro material.');return {job:j,meta};}
@@ -113,7 +117,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    changeJob(job.id,'queued');
   }catch(e){
    // Earlier accepted parts remain tracked; do not resubmit them automatically.
-   const hasAccepted=!!db.prepare('SELECT id FROM requests WHERE job_id=?').get(job.id);
+   const hasAccepted=!!db.prepare('SELECT id FROM requests WHERE job_id=?').get(job.id);if(!submitted&&!hasAccepted)billing.release(job.id);
    changeJob(job.id,hasAccepted||submitted&&!e.definitive?'uncertain':'failed',hasAccepted||submitted&&!e.definitive?'Resposta incompleta. Confira o console do provedor antes de reenviar.':e.message);
   }
  }
@@ -186,7 +190,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function newJob(user,kind,name,characterId,meta){
   if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n>=8)throw Error('Aguarde as solicitações em andamento.');
   const j={id:randomUUID(),user_id:user.id,kind,name,character_id:characterId};
-  db.prepare('INSERT INTO jobs(id,user_id,kind,name,character_id,status,created,meta) VALUES(?,?,?,?,?,?,?,?)').run(j.id,user.id,kind,name,characterId||null,'uploading',new Date().toISOString(),JSON.stringify(meta||{}));
+  const charge=usesCentral(user.id)&&meta?.transport!=='mcp';if(charge)billing.preflight(user,billing.cost(kind,meta||{}));
+  db.exec('BEGIN IMMEDIATE');try{if(charge)billing.reserve(user,j.id,billing.cost(kind,meta||{}));
+  db.prepare('INSERT INTO jobs(id,user_id,kind,name,character_id,status,created,meta) VALUES(?,?,?,?,?,?,?,?)').run(j.id,user.id,kind,name,characterId||null,'uploading',new Date().toISOString(),JSON.stringify({...meta,...(charge?{central:true,platformCredits:billing.cost(kind,meta||{})}:{})}));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
   return j;
  }
  const server=http.createServer(async(req,res)=>{
@@ -195,19 +201,21 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
   administration.observe(res);
-  const publicGet=req.method==='GET'&&['/','/app.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
+  const publicGet=req.method==='GET'&&['/','/app.js','/billing.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
   const oauthCallback=req.method==='GET'&&String(req.url||'').split('?')[0]==='/api/mcp/callback';
-  if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback)){json(res,403,{error:'Origem não autorizada.'});return;}
-  if(!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
+  const asaasWebhook=req.method==='POST'&&String(req.url||'').split('?')[0]==='/api/billing/webhook';
+  if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback&&!asaasWebhook)){json(res,403,{error:'Origem não autorizada.'});return;}
+  if(!asaasWebhook&&!['GET','HEAD'].includes(req.method)&&!allowed.has(req.headers.origin)){json(res,403,{error:'Origem não autorizada.'});return;}
   try{
    const url=new URL(req.url,origin),path=url.pathname,user=auth.read(req);
+   if(asaasWebhook){json(res,200,await billing.webhook(req.headers['asaas-access-token'],await body(req,256*1024)));return;}
    if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
-   const staticFiles={'/':'index.html','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
+   const staticFiles={'/':'index.html','/app.js':'app.js','/billing.js':'billing.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
    if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.zip')?'application/zip':path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
-   if(path.startsWith('/api/admin/')){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);if(path==='/api/admin/dashboard'&&req.method==='GET'){json(res,200,administration.dashboard());return;}if(req.method==='POST'){const input=await body(req);if(path==='/api/admin/access'){json(res,200,administration.access(user.id,String(input.id),input.status));return;}if(path==='/api/admin/payments'){json(res,201,administration.payment(user.id,input));return;}if(path==='/api/admin/payment-status'){json(res,200,administration.paymentStatus(user.id,String(input.id),input.status));return;}}throw error('Operação administrativa não encontrada.',404);}
+   if(path.startsWith('/api/admin/')){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);if(path==='/api/admin/dashboard'&&req.method==='GET'){json(res,200,{...administration.dashboard(),billing:billing.admin()});return;}if(req.method==='POST'){const input=await body(req);if(path==='/api/admin/central'){if(db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Resolva as gerações pendentes antes de alterar a API central.');billing.configureCentral(user.id,input);json(res,200,{ok:true});return;}if(path==='/api/admin/asaas'){json(res,200,await billing.configureAsaas(input));return;}if(path==='/api/admin/asaas-webhook'){json(res,200,await billing.webhookSetup(origin,user.email));return;}if(path==='/api/admin/access'){json(res,200,administration.access(user.id,String(input.id),input.status));return;}if(path==='/api/admin/payments'){json(res,201,administration.payment(user.id,input));return;}if(path==='/api/admin/payment-status'){json(res,200,administration.paymentStatus(user.id,String(input.id),input.status));return;}}throw error('Operação administrativa não encontrada.',404);}
    if(path==='/api/mcp/catalog'&&req.method==='GET'){json(res,200,await mcp.catalog(user.id));return;}
    if(path==='/api/balance'&&req.method==='GET'){json(res,200,{mcp:await balance(user.id,{force:url.searchParams.get('refresh')==='1'}),api:{status:getKey(user.id)?'console':'disconnected',url:'https://open.higgsfield.ai/billing'},refreshSeconds:30});return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
@@ -229,6 +237,9 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path.startsWith('/api/')&&req.method==='POST'){
     const promptRoute=['/api/generate','/api/generate-images','/api/characters','/api/mcp/video-estimate','/api/library/descriptions'].includes(path);
     const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:promptRoute?8*1024*1024:64*1024);
+    if(path==='/api/billing/subscribe'){json(res,201,await billing.subscribe(user,b));return;}
+    if(path==='/api/billing/sync'){json(res,200,await billing.syncOrder(user,String(b.id)));return;}
+    if(path==='/api/billing/cancel'){json(res,200,await billing.cancel(user,String(b.id)));return;}
     if(path==='/api/library/import'){if(!user.admin)throw error('Apenas o administrador pode importar a biblioteca.',403);json(res,201,await importLibrary(db,dataDir,b,inspect));return;}
     if(path==='/api/library/descriptions'){if(!user.admin)throw error('Apenas o administrador pode atualizar a biblioteca.',403);json(res,200,updateLibraryDescriptions(db,b.characters));return;}
     if(path==='/api/connections/select'){assertAccountChange(user.id);const result=connections.select(user.id,String(b.id));json(res,200,result);return;}
@@ -339,7 +350,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      if(!name||name.length>100||!description||!Number.isInteger(options)||options<1||options>4)throw Error('Informe nome, descrição e de 1 a 4 opções.');
      if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n+options>8)throw Error('Aguarde a fila antes de gerar todas as opções.');
      const quality=b.quality||'standard',framing=b.framing||'portrait';imageSettings(quality);characterPrompt(description,framing);
-     const references=validateReferences(b.references||[],user.id,3),batch=randomUUID(),ids=[];
+     const references=validateReferences(b.references||[],user.id,3),batch=randomUUID(),ids=[];if(usesCentral(user.id))billing.preflight(user,options*billing.cost('image',{quality}));
      for(let i=0;i<options;i++){const j=newJob(user,'image',name,null,{batch,description,option:i+1,quality,framing});ids.push(j.id);launch(()=>submit(j,{references,prompt:characterPrompt(description,framing),quality}));}
      json(res,202,{ids,batch});return;
     }

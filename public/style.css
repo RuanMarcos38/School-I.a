@@ -19,3 +19,5 @@ body{padding-bottom:env(safe-area-inset-bottom)}header{padding-left:max(18px,env
 .balance-panel{font-size:12px;line-height:1.5;min-width:170px}.balance-panel span,.balance-panel small{display:block}.balance-panel small{color:#92949f;font-size:10px}.balance-panel button{font-size:11px;padding:4px 8px;min-height:30px}.balance-panel a{font-size:10px;color:#c9b85d}@media(max-width:600px){.balance-panel{flex-basis:100%;order:4}.balance-panel div{display:flex;align-items:center;gap:10px}}
 header:has(.balance-panel:not(.hidden)){flex-wrap:wrap}.balance-panel:not(.hidden){display:flex;flex-basis:100%;order:4;align-items:center;gap:10px;flex-wrap:wrap}.balance-panel.hidden{display:none}
 .higgsfield-access{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.higgsfield-access .button{font-size:12px;text-align:center}.model .higgsfield-access .button{flex:1;min-width:120px}
+
+.plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}.plan-grid section{margin:0}#higgsfield-signup{color:#efd441}
