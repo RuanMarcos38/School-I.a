@@ -1,3 +1,4 @@
+import {providerFailure} from './lib/provider-failure.mjs';
 import {videoResolution} from './lib/video-settings.mjs';
 import {createNotifications} from './lib/notifications.mjs';
 import {createBilling} from './lib/billing.mjs';
@@ -169,7 +170,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      if(s.status==='completed'){
       db.prepare("UPDATE requests SET status='materializing' WHERE id=?").run(r.id);await materialize(job,r,s);
      }else if(['queued','in_progress'].includes(s.status)){db.prepare('UPDATE requests SET status=? WHERE id=?').run(s.status,r.id);if(job.status!=='uncertain')changeJob(job.id,s.status);}
-     else if(['failed','nsfw','canceled'].includes(s.status)){db.prepare('UPDATE requests SET status=?,error=? WHERE id=?').run(s.status,'Provedor: '+s.status,r.id);changeJob(job.id,s.status,'Provedor: '+s.status);}
+     else if(['failed','nsfw','canceled'].includes(s.status)){const failure=providerFailure(s);db.prepare('UPDATE requests SET status=?,error=? WHERE id=?').run(s.status,failure.reason,r.id);changeJob(job.id,s.status,failure.reason);}
     }catch(e){
      db.prepare('UPDATE requests SET error=? WHERE id=?').run(e.message,r.id);
      db.prepare('UPDATE jobs SET error=? WHERE id=?').run('Acompanhamento pendente: '+e.message,job.id);
@@ -338,6 +339,12 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
       const media=saveMedia(temp,info,user.id);db.prepare('INSERT INTO imported_links(user_id,url,media_id) VALUES(?,?,?) ON CONFLICT(user_id,url) DO UPDATE SET media_id=excluded.media_id').run(user.id,canonical,media.id);json(res,201,media);
      }finally{try{unlinkSync(temp);}catch{}}
      return;
+    }
+    if(path==='/api/jobs/diagnostic'){
+     const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);if(!j)throw error('Solicitação não encontrada.',404);
+     const parts=db.prepare('SELECT id,part,status FROM requests WHERE job_id=? ORDER BY part').all(j.id),results=[];
+     for(const part of parts){try{const result=JSON.parse(j.meta).transport==='mcp'?await mcp.status(user.id,part.id):await call(user.id,'/requests/'+encodeURIComponent(part.id)+'/status');const failure=providerFailure(result);results.push({part:part.part+1,status:result.status,...(['failed','nsfw','canceled'].includes(result.status)?failure:{reason:'Situação atual consultada no provedor.',code:null})});if(['failed','nsfw','canceled'].includes(j.status)&&result.status===j.status){db.prepare('UPDATE requests SET error=? WHERE id=?').run(failure.reason,part.id);db.prepare('UPDATE jobs SET error=? WHERE id=? AND user_id=?').run(failure.reason,j.id,user.id);}}catch(e){results.push({part:part.part+1,status:'unavailable',reason:'Não foi possível consultar esta solicitação agora. Confira a conta conectada e tente consultar novamente.',code:null});}}
+     json(res,200,{parts:results,message:parts.length?'Consulta de solicitações existentes; nenhuma geração ou cobrança nova foi iniciada.':'O envio não chegou a receber um identificador do provedor. Confira a mensagem do item.'});return;
     }
     if(path==='/api/jobs/reuse-video'){const old=retryRecord(user,String(b.id)),v=findMedia(old.meta.videoId,user.id),c=findCharacter(old.job.character_id,user.id);if(!v||!existsSync(join(dataDir,'media',v.id))||!c)throw Error('O vídeo ou personagem original não está mais disponível.');json(res,200,{sourceId:old.job.id,characterId:c.id,video:{id:v.id,type:v.type,duration:v.duration,width:v.width,height:v.height,size:v.size,url:'/media/'+v.id,name:'Vídeo do envio anterior'},promptText:old.meta.snapshot?.promptText??null,resolution:old.meta.resolution||old.meta.snapshot?.resolution||'1080p',transport:old.meta.transport||'api',withoutProject:old.meta.withoutProject===true,hasSnapshot:!!old.meta.snapshot});return;}
     if(path==='/api/generate'){
