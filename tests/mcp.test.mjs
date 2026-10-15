@@ -38,3 +38,5 @@ test('preset choice is owner-bound and input-bound, reuses uploads and preserves
   const prepared=f.gateway.consumeQuote('owner',q.quoteId,f.input,8);assert.equal(prepared.params.prompt,f.input.prompt);assert.equal(prepared.params.declined_preset_id,'11111111-1111-4111-8111-111111111111');assert.equal(prepared.params.get_cost,undefined);
  }finally{f.close();}}
 });
+
+test('preset identifier line is sufficient even when decline syntax is formatted differently',()=>{const data=toolData({structuredContent:{notice:'Preset suggestion'},content:[{type:'text',text:'Preset id: 24bae836-2c4a-48e0-89b6-49fcc0b21612\nConfirm your choice.'}]});assert.equal(data.preset_recommendation.preset_id,'24bae836-2c4a-48e0-89b6-49fcc0b21612');});
