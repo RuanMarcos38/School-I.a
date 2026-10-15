@@ -1,7 +1,7 @@
 {
  "manifest_version":3,
  "name":"Fields IA · Importação temporária",
- "version":"1.0.0",
+ "version":"1.0.1",
  "description":"Importa um vídeo Instagram após confirmação e revoga as permissões ao terminar.",
  "permissions":["alarms"],
  "background":{"service_worker":"cleanup.js"},

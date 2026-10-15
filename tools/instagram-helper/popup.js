@@ -1,7 +1,12 @@
 const ACCESS={permissions:['cookies','scripting'],origins:['https://www.instagram.com/*','https://fieldsia.r2rmarketingdigital.com.br/*']};
 const button=document.querySelector('#import'),status=document.querySelector('#status');
+const extensionReady=location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.id&&typeof chrome.permissions?.request==='function'&&typeof chrome.permissions?.remove==='function'&&typeof chrome.scripting?.executeScript==='function'&&typeof chrome.tabs?.query==='function';
+if(!extensionReady){
+ button.hidden=true;document.querySelector('#installation').hidden=false;
+ status.textContent='Este arquivo foi aberto fora da extensão. Instale a pasta no Chrome e use o ícone Fields IA na barra de extensões. Nenhuma sessão foi acessada ou enviada.';
+}else{
 const revoke=()=>chrome.permissions.remove(ACCESS);
-window.addEventListener('pagehide',revoke);
+window.addEventListener('pagehide',()=>{void revoke().catch(()=>{});});
 button.addEventListener('click',async()=>{
  button.disabled=true;let cookies=[];
  try{
@@ -26,5 +31,7 @@ button.addEventListener('click',async()=>{
   if(!result?.result?.ok)throw Error(result?.result?.error||'Importação não concluída.');
   status.textContent='Vídeo importado ('+Number(result.result.duration).toFixed(1)+' s). Volte ao Fields IA.';
  }catch(e){status.textContent=e.message;}
- finally{cookies=[];await revoke();button.disabled=false;}
+ finally{cookies=[];try{await revoke();}catch{status.textContent+=' Se necessário, remova a extensão no Chrome para revogar o acesso.';}button.disabled=false;}
 });
+
+}
