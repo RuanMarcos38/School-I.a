@@ -21,3 +21,5 @@ header:has(.balance-panel:not(.hidden)){flex-wrap:wrap}.balance-panel:not(.hidde
 .higgsfield-access{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.higgsfield-access .button{font-size:12px;text-align:center}.model .higgsfield-access .button{flex:1;min-width:120px}
 
 .plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}.plan-grid section{margin:0}#higgsfield-signup{color:#efd441}
+
+@media(max-width:1000px){header nav{flex-basis:100%;order:3;overflow-x:auto;max-width:100%}}
