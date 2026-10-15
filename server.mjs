@@ -225,6 +225,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/balance'&&req.method==='GET'&&usesCentral(user.id)){json(res,200,{platform:{available:billing.summary(user).available},mcp:{connected:false,status:'unavailable'},refreshSeconds:30});return;}
    if(path==='/api/balance'&&req.method==='GET'){json(res,200,{mcp:await balance(user.id,{force:url.searchParams.get('refresh')==='1'}),api:{status:getKey(user.id)?'console':'disconnected',url:'https://open.higgsfield.ai/billing'},refreshSeconds:30});return;}
    if(path==='/api/state'&&req.method==='GET'){json(res,200,state(user));return;}
+   if(path==='/api/jobs/trash'&&req.method==='GET'){json(res,200,{jobs:db.prepare('SELECT id,name,status,created FROM jobs WHERE user_id=? AND hidden=2 ORDER BY created DESC').all(user.id)});return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
    if(path==='/api/health'&&req.method==='GET'){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
    if(path.startsWith('/media/')&&req.method==='GET'){
@@ -385,6 +386,16 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      await call(user.id,'/requests/'+encodeURIComponent(b.requestId)+'/status');
      db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) VALUES(?,?,0,'queued')").run(b.requestId,j.id);
      db.prepare("UPDATE jobs SET status='queued',error=NULL,request_id=? WHERE id=?").run(b.requestId,j.id);json(res,200,{ok:true});return;
+    }
+    if(path==='/api/jobs/delete'){
+     const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);
+     if(!j||!['failed','canceled','nsfw'].includes(j.status))throw error('Somente solicitações com erro, recusadas ou canceladas podem ser excluídas.',400);
+     if(db.prepare("SELECT id FROM requests WHERE job_id=? AND status IN ('queued','in_progress','materializing')").get(j.id))throw error('Aguarde a conclusão das partes em andamento antes de excluir.',400);
+     db.prepare('UPDATE jobs SET hidden=2 WHERE id=? AND user_id=?').run(j.id,user.id);json(res,200,{ok:true});return;
+    }
+    if(path==='/api/jobs/restore'){
+     const restored=db.prepare('UPDATE jobs SET hidden=0 WHERE id=? AND user_id=? AND hidden=2').run(b.id,user.id);
+     if(!restored.changes)throw error('Solicitação não encontrada na sua lixeira.',404);json(res,200,{ok:true});return;
     }
     if(path==='/api/jobs/hide'){
      const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);if(!j||active.includes(j.status))throw Error('Resolva a solicitação antes de arquivar.');

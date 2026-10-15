@@ -27,6 +27,7 @@ function cards(compact=false){
  const list=state.characters.filter(c=>(!folder||c.folder===folder)&&c.name.toLowerCase().includes(query.toLowerCase())&&(filter!=='★'||c.favorite)&&(filter!=='Biblioteca'||c.source==='library')&&(filter!=='Criados'||c.source!=='library'));
  return '<div class="cards '+(compact?'compact':'')+'">'+(compact?'<button class="add" data-action="create"><span class="plus">+</span><br><br>Criar</button>':'')+list.map(c=>'<button class="card '+(selected===c.id?'selected':'')+'" data-action="'+(compact?'select':'detail')+'" data-id="'+c.id+'"><img src="/media/'+c.images[0]+'" alt="'+esc(c.name)+'" loading="lazy"><span>'+esc(c.name)+'<small>'+c.images.length+' imagens '+(c.favorite?'★':'')+'</small></span></button>').join('')+'</div>'+(list.length||compact?'':'<div class="empty"><strong>Nenhum personagem</strong>Crie um personagem por descrição ou com suas imagens.</div>');
 }
+async function showJobTrash(){const result=await api('jobs/trash');showModal(head('Lixeira de solicitações')+'<p>Itens excluídos podem ser restaurados. O vídeo base e as referências foram preservados.</p>'+result.jobs.map(j=>'<article class="job"><strong>'+esc(j.name)+'</strong><p class="muted">'+esc(statusNames[j.status])+' · '+new Date(j.created).toLocaleString('pt-BR')+'</p><button data-action="restorejob" data-id="'+esc(j.id)+'">Restaurar</button></article>').join('')+(result.jobs.length?'':'<p>Sua lixeira está vazia.</p>'));}
 function jobCard(j,checkbox=false){
  const image=j.kind!=='video';
  return '<article class="job"><div class="jobhead"><strong>'+esc(j.name)+(j.kind==='view'?' · '+esc(angleNames[j.meta.view]||j.meta.view):j.kind==='image'?' · opção '+j.meta.option:'')+'</strong><span class="badge">'+esc(statusNames[j.status]||j.status)+'</span></div><p class="muted">'+new Date(j.created).toLocaleString('pt-BR')+'</p>'+
@@ -34,6 +35,7 @@ function jobCard(j,checkbox=false){
  '<div class="actions">'+(j.result?'<a class="button" href="'+esc(j.result)+'?download=1">Baixar</a><button data-action="jobfavorite" data-id="'+j.id+'" aria-label="Favoritar resultado">'+(j.favorite?'★':'☆')+'</button>':'')+
  (['queued','in_progress'].includes(j.status)&&j.meta.transport!=='mcp'?'<button data-action="cancel" data-id="'+j.id+'">Cancelar</button>':'')+
  (j.kind==='video'&&['failed','canceled'].includes(j.status)?'<button data-action="reusevideo" data-id="'+j.id+'">Reenviar vídeo</button>':'')+
+ (['failed','canceled','nsfw'].includes(j.status)?'<button data-action="deletejob" data-id="'+j.id+'">Excluir</button>':'')+
  (j.status==='uncertain'?'<button data-action="reconcile" data-id="'+j.id+'">Vincular solicitação</button>':'')+
  (['completed','failed','canceled','nsfw'].includes(j.status)?'<button data-action="hidejob" data-id="'+j.id+'">Arquivar</button>':'')+
  (checkbox?'<label class="check"><input type="checkbox" data-compare="'+j.id+'" '+(compare.has(j.id)?'checked':'')+'>Comparar</label>':'')+'</div></article>';
@@ -65,7 +67,7 @@ function render(){
  }
  if(page==='fila'){
   const jobs=state.jobs.filter(j=>queue==='Todos'||queue==='Prontos'&&j.status==='completed'||queue==='Com erro'&&['failed','nsfw','uncertain','canceled'].includes(j.status)||queue==='Rodando'&&['uploading','submitting','queued','in_progress','assembling'].includes(j.status));
-  app.innerHTML='<h1>Fila</h1>'+tabs(['Rodando','Com erro','Prontos','Todos'],queue,'queue')+jobs.map(j=>jobCard(j)).join('')+(jobs.length?'':'<div class="empty"><strong>Nada '+(queue==='Rodando'?'rodando agora':'por aqui')+'</strong>Gere personagens ou vídeos. As solicitações aparecem aqui com o progresso de cada etapa.<p><a href="#/">Ir para o Estúdio →</a></p></div>');return;
+  app.innerHTML='<div class="toolbar"><h1>Fila</h1><button data-action="trashjobs">Lixeira</button></div>'+tabs(['Rodando','Com erro','Prontos','Todos'],queue,'queue')+jobs.map(j=>jobCard(j)).join('')+(jobs.length?'':'<div class="empty"><strong>Nada '+(queue==='Rodando'?'rodando agora':'por aqui')+'</strong>Gere personagens ou vídeos. As solicitações aparecem aqui com o progresso de cada etapa.<p><a href="#/">Ir para o Estúdio →</a></p></div>');return;
  }
  if(page==='galeria'){
   const jobs=state.jobs.filter(j=>j.status==='completed'&&j.kind==='video'&&j.name.toLowerCase().includes(query.toLowerCase())&&(!galleryFavorite||j.favorite));
@@ -155,6 +157,9 @@ document.addEventListener('click',async e=>{
  if(a==='generateview'){b.disabled=true;await api('generate-view',{characterId:id,view:$('#view-angle').value});toast('Vista adicionada à fila.');modal.close();location.hash='#/fila';await refresh(true);}
  if(a==='saveoption'){const j=state.jobs.find(j=>j.id===id);const result=await api('characters',{name:j.name,description:j.meta.description,images:j.outputs});toast('Personagem salvo.');selected=result.id;modal.close();createBatch=null;await refresh(true);}
  if(a==='cancel'){b.disabled=true;toast((await api('cancel',{id})).message);}
+ if(a==='deletejob'){await api('jobs/delete',{id});compare.delete(id);await refresh(true);toast('Item excluído. Você pode restaurá-lo na Lixeira da Fila.');}
+ if(a==='trashjobs'){await showJobTrash();}
+ if(a==='restorejob'){await api('jobs/restore',{id});await refresh(true);await showJobTrash();toast('Solicitação restaurada.');}
  if(a==='hidejob'){await api('jobs/hide',{id});compare.delete(id);await refresh(true);}
  if(a==='reconcile')showModal(head('Vincular solicitação Higgsfield')+'<form id="reconcile-form" data-id="'+id+'"><p class="muted">Use o identificador da geração já existente no console. Esta operação consulta a solicitação e não inicia outra cobrança.</p><input name="requestId" aria-label="Identificador da solicitação" required><div class="actions"><button class="primary" type="submit">Vincular e acompanhar</button></div></form>');
  if(a==='compare'){const jobs=state.jobs.filter(j=>compare.has(j.id));showModal(head('Comparar resultados')+'<div class="compare">'+jobs.slice(0,2).map(j=>jobCard(j)).join('')+'</div>');}
