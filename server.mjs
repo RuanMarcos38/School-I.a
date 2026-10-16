@@ -205,7 +205,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const origin=process.env.PUBLIC_ORIGIN||'http://localhost:'+server.address().port,allowed=new Set([origin,'http://127.0.0.1:'+server.address().port]);
   const allowedHosts=new Set([...allowed].map(o=>new URL(o).host));
   administration.observe(res);
-  const publicGet=req.method==='GET'&&['/','/app.js','/billing.js','/video-cost.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
+  const publicGet=req.method==='GET'&&['/','/app.js','/request.js','/generation-validation.js','/billing.js','/video-cost.js','/admin.js','/style.css','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/instagram-helper.zip'].includes(String(req.url||'').split('?')[0]);
   const oauthCallback=req.method==='GET'&&String(req.url||'').split('?')[0]==='/api/mcp/callback';
   const asaasWebhook=req.method==='POST'&&String(req.url||'').split('?')[0]==='/api/billing/webhook';
   if(!allowedHosts.has(req.headers.host)||(req.headers['sec-fetch-site']==='cross-site'&&!publicGet&&!oauthCallback&&!asaasWebhook)){json(res,403,{error:'Origem não autorizada.'});return;}
@@ -216,7 +216,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/mcp/callback'&&req.method==='GET'){await mcp.complete(url.searchParams.get('state'),url.searchParams.get('code'),url.searchParams.get('iss'));res.writeHead(303,{Location:'/#/config','Cache-Control':'no-store'});res.end();return;}
    if(path==='/api/auth/me'&&req.method==='GET'){json(res,200,{user:auth.safe(user),setupRequired:!localMode&&!db.prepare('SELECT id FROM users WHERE password != ?').get(''),localMode});return;}
    if(path.startsWith('/api/auth/')&&req.method==='POST'){json(res,200,await auth.action(path,await body(req),req,res));return;}
-   const staticFiles={'/':'index.html','/app.js':'app.js','/billing.js':'billing.js','/video-cost.js':'video-cost.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
+   const staticFiles={'/':'index.html','/app.js':'app.js','/request.js':'request.js','/generation-validation.js':'generation-validation.js','/billing.js':'billing.js','/video-cost.js':'video-cost.js','/admin.js':'admin.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/instagram-helper.zip':'instagram-helper.zip'};
    if(req.method==='GET'&&staticFiles[path]){const type=path.endsWith('.zip')?'application/zip':path.endsWith('.png')?'image/png':path.endsWith('.webmanifest')?'application/manifest+json':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html';res.writeHead(200,{'Content-Type':type+(type==='image/png'?'':'; charset=utf-8'),'Cache-Control':'no-cache'});res.end(readFileSync(join(root,'public',staticFiles[path])));return;}
    if(!user){json(res,401,{error:'Entre na sua conta.'});return;}
    if(user.status==='pending'&&!['/api/state','/api/billing/subscribe','/api/billing/sync','/api/billing/cancel'].includes(path))throw error('Conclua o pagamento para liberar o acesso.',403);
