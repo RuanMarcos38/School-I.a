@@ -1,0 +1,12 @@
+{
+ "manifest_version":3,
+ "name":"Fields IA · Importação temporária",
+ "version":"1.0.2",
+ "description":"Importa um vídeo Instagram após confirmação e revoga as permissões ao terminar.",
+ "permissions":["alarms"],
+ "background":{"service_worker":"cleanup.js"},
+ "optional_permissions":["cookies","scripting"],
+ "optional_host_permissions":["https://www.instagram.com/*","https://fieldsia.r2rmarketingdigital.com.br/*"],
+ "action":{"default_popup":"popup.html","default_title":"Importar uma vez no Fields IA"}
+}
+
