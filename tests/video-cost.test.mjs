@@ -6,7 +6,7 @@ test('cost includes separately rounded parts and separates platform credits, MCP
  assert.equal(videoCost(30,'720p').usd,20.43);assert.equal(videoCost(0,'480p'),null);assert.equal(videoCost(10,'4k'),null);
  assert.match(generationLabel({duration:32.5,resolution:'480p'}),/US\$/);
  assert.equal(generationLabel({duration:32.5,central:true,rate:20}),'Gerar · 660 créditos Fields IA');
- assert.equal(generationLabel({transport:'mcp',quote:{credits:12.5}}),'Gerar · 12,5 créditos MCP');
+ assert.equal(generationLabel({transport:'mcp',quote:{credits:12.5}}),'Gerar · 12,5 créditos Higgsfield');
  assert.match(generationLabel({transport:'mcp'}),/estimar/);
 });
 test('provider failures are classified without disclosing response secrets, URLs or input text',async()=>{
