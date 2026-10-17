@@ -6,7 +6,7 @@ export function videoCost(duration,resolution='1080p'){
  return {parts,seconds,usd:Math.ceil(seconds*Math.round(videoListRates[resolution]*1000)/10)/100};
 }
 export function generationLabel({duration,resolution,central=false,rate=0,transport='api',quote}={}){
- if(transport==='mcp')return quote?'Gerar · '+new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2}).format(quote.credits)+' créditos MCP':'Gerar · estimar créditos MCP';
+ if(transport==='mcp')return quote?'Gerar · '+new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2}).format(quote.credits)+' créditos Higgsfield':'Gerar · estimar créditos Higgsfield';
  if(central)return Number.isFinite(duration)?'Gerar · '+Math.ceil(duration)*rate+' créditos Fields IA':'Gerar';
  const cost=videoCost(duration,resolution);return cost?'Gerar · ~'+new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD'}).format(cost.usd):'Gerar';
 }
