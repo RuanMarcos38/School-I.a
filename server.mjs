@@ -18,13 +18,14 @@ import {randomUUID} from 'node:crypto';
 import {createVault} from './lib/vault.mjs';
 import {createAuth} from './lib/auth.mjs';
 import {createMcpGateway} from './lib/mcp.mjs';
+import {createMultipartMcp} from './lib/mcp-multipart.mjs';
 import {createProvider,VIDEO_MODEL,IMAGE_MODEL,characterPrompt,viewPrompt,views,imageSettings} from './lib/provider.mjs';
 import {types,toolsReady,inspectMedia,receiveMedia,downloadMedia,streamMedia,splitVideo,concatenate,importSocial,socialURL} from './lib/media.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const active=['uploading','submitting','queued','in_progress','assembling','uncertain'];
 const terminal=['completed','failed','nsfw','canceled'];
 function error(message,status=400){const e=Error(message);e.status=status;return e;}
-export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,billingFetch=fetch,emailFetch=fetch,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
+export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provider:customProvider,mcpGateway:gatewayOverride,billingFetch=fetch,emailFetch=fetch,uploadFetch=fetch,pollInterval=10000,localMode=process.env.LOCAL_MODE!=='false',inspect=inspectMedia,download=downloadMedia,split=splitVideo,concat=concatenate,importer=importSocial,testMode=false}={}){
  mkdirSync(join(dataDir,'media'),{recursive:true});mkdirSync(join(dataDir,'processing'),{recursive:true});
  const db=new DatabaseSync(join(dataDir,'school.sqlite'));
  db.exec('CREATE TABLE IF NOT EXISTS imported_links(user_id TEXT,url TEXT,media_id TEXT,PRIMARY KEY(user_id,url));');
@@ -50,7 +51,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   db.exec("UPDATE characters SET favorite=0; UPDATE jobs SET favorite=0; INSERT INTO migrations VALUES('v1-data');");
  }
  db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) SELECT request_id,id,0,status FROM jobs WHERE request_id IS NOT NULL AND status IN ('queued','in_progress')").run();
- const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode,allowPendingLogin:()=>billing.autoApproval()}),mcp=createMcpGateway({db,vault,onIdentity:(user,email)=>connections.setEmail(user,'mcp',email,'provider'),isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),administration=createAdministration(db);
+ const vault=createVault(dataDir),auth=createAuth(db,dataDir,{localMode,allowPendingLogin:()=>billing.autoApproval()}),mcpGateway=createMcpGateway({db,vault,onIdentity:(user,email)=>connections.setEmail(user,'mcp',email,'provider'),isEnabled:user=>connections.isEnabled(user,'mcp'),beforeReplace:user=>{if(db.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='approved')throw Error('O acesso desta conta não está aprovado.');assertAccountChange(user);connections.capture(user,'mcp');},afterReplace:(user,label)=>connections.save(user,'mcp',label)}),connections=createConnections(db),mcp=createMultipartMcp({gateway:gatewayOverride||mcpGateway,db,vault}),administration=createAdministration(db);
  function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
  const notifications=createNotifications(db,vault,{request:emailFetch}),billing=createBilling(db,vault,{request:billingFetch,notify:notifications.enqueue});
@@ -83,9 +84,26 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   if(!c||!v?.type.startsWith('video/'))throw Error('Selecione personagem e vídeo.');
   if(v.width*v.height<409600)throw Error('Vídeo pequeno para o Genjutsu. Use um arquivo em 720p ou maior.');
   prompt=resolved?.prompt||videoPrompt(c.description,prompt);
-  return {resolution:videoResolution(resolved?.resolution),withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},references:(resolved?.references||JSON.parse(c.images).slice(0,5)).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
+  return {resolution:videoResolution(resolved?.resolution),withoutProject,duration:v.duration,prompt,video:{path:join(dataDir,'media',v.id),type:v.type},...(v.duration>30?{parts:[0,1].map(i=>({duration:v.duration/2,video:{path:join(dataDir,'processing','mcp-'+v.id,'part-'+i+'.mp4'),type:'video/mp4'}}))}:{}),references:(resolved?.references||JSON.parse(c.images).slice(0,5)).map(id=>{const r=findMedia(id,c.user_id==='library'?'library':c.user_id);if(!r)throw Error('Referência indisponível.');return {path:join(dataDir,'media',r.id),type:r.type};})};
  }
- async function submitMcp(job,quote){let sent=false;try{changeJob(job.id,'submitting');sent=true;const result=await mcp.generate(job.user_id,quote);if(!/^[a-zA-Z0-9_-]{1,200}$/.test(result.request_id))throw Error('Identificador MCP inválido.');db.prepare('INSERT INTO requests(id,job_id,part,status) VALUES(?,?,0,?)').run(result.request_id,job.id,'queued');db.prepare('UPDATE jobs SET request_id=? WHERE id=?').run(result.request_id,job.id);changeJob(job.id,'queued');}catch(e){changeJob(job.id,sent&&!e.definitive?'uncertain':'failed',sent&&!e.definitive?'Resposta MCP incompleta. Confira o Higgsfield antes de reenviar.':e.message);}}
+ const mcpSplits=new Map();
+ async function prepareMcpParts(input){if(!input.parts)return;
+  const path=input.video.path,dir=dirname(input.parts[0].video.path);
+  if(!mcpSplits.has(path)){mkdirSync(dir,{recursive:true});const work=split(path,dir,input.duration).then(files=>{if(files.length!==2)throw Error('Não foi possível preparar as duas partes do vídeo.');}).catch(e=>{mcpSplits.delete(path);throw e;});mcpSplits.set(path,work);}
+  await mcpSplits.get(path);
+ }
+ async function submitMcp(job,quote){let sent=false;try{
+  changeJob(job.id,'submitting');mcp.claimBatch(job.user_id,quote);
+  const parts=quote.parts||[quote];
+  for(let i=0;i<parts.length;i++){
+   sent=true;const result=await mcp.generate(job.user_id,parts[i]);
+   if(!/^[a-zA-Z0-9_-]{1,200}$/.test(result.request_id))throw Error('Identificador da solicitação inválido.');
+   db.prepare('INSERT INTO requests(id,job_id,part,status) VALUES(?,?,?,?)').run(result.request_id,job.id,i,'queued');
+   db.prepare('UPDATE jobs SET request_id=? WHERE id=?').run(result.request_id,job.id);
+  }
+  changeJob(job.id,'queued');
+ }catch(e){const accepted=!!db.prepare('SELECT id FROM requests WHERE job_id=?').get(job.id);changeJob(job.id,accepted||sent&&!e.definitive?'uncertain':'failed',accepted||sent&&!e.definitive?'Resposta incompleta. Confira a conta Higgsfield antes de reenviar; partes já aceitas foram preservadas.':e.message);}}
+
 
  async function uploadPath(userId,path,type){
   const signed=await call(userId,'/files/generate-upload-url','POST',{content_type:type});
@@ -142,7 +160,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  }
  async function finish(job){
   const requests=db.prepare('SELECT * FROM requests WHERE job_id=? ORDER BY part').all(job.id);
-  if(!requests.length||requests.some(r=>r.status!=='completed'))return;
+  if(!requests.length||requests.some(r=>r.status!=='completed')||(JSON.parse(job.meta).expectedParts&&requests.length!==JSON.parse(job.meta).expectedParts))return;
   let outputs=requests.flatMap(r=>JSON.parse(r.local_media||'[]'));
   if(job.kind==='video'&&outputs.length>1){
    changeJob(job.id,'assembling');const path=join(dataDir,'processing',job.id+'-final.mp4');
@@ -259,7 +277,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     if(path==='/api/mcp/poll'){json(res,200,await mcp.pollAuth(user.id));return;}
     if(path==='/api/mcp/verify'){json(res,200,await mcp.verify(user.id));return;}
     if(path==='/api/mcp/disconnect'){assertAccountChange(user.id);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND json_extract(meta,'$.transport')='mcp' AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user.id))throw Error('Resolva as gerações MCP pendentes antes de desconectar.');mcp.disconnect(user.id);connections.disconnect(user.id,'mcp');json(res,200,{ok:true});return;}
-    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);if(input.prompt.length>10000)throw Error('O prompt completo excede 10.000 caracteres. Revise antes de estimar; nenhuma mídia foi enviada.');const quote=await mcp.estimate(user.id,mcpInput(c,v,b.prompt,b.withoutProject===true,input),{choiceId:b.choiceId,literal:b.literal===true});if(quote.choiceRequired&&b.supportsPresetChoice!==true)throw Error('O Higgsfield sugeriu o efeito '+quote.presetName+'. Seu prompt foi preservado. Atualize a página para escolher Manter meu prompt. Nenhuma geração foi iniciada.');json(res,200,quote);return;}
+    if(path==='/api/mcp/video-estimate'){const c=findCharacter(b.characterId,user.id),v=findMedia(b.videoId,user.id),input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution);if(input.prompt.length>10000)throw Error('O prompt completo excede 10.000 caracteres. Revise antes de estimar; nenhuma mídia foi enviada.');const prepared=mcpInput(c,v,b.prompt,b.withoutProject===true,input);await prepareMcpParts(prepared);const quote=await mcp.estimate(user.id,prepared,{choiceId:b.choiceId,literal:b.literal===true});if(quote.choiceRequired&&b.supportsPresetChoice!==true)throw Error('O Higgsfield sugeriu o efeito '+quote.presetName+'. Seu prompt foi preservado. Atualize a página para escolher Manter meu prompt. Nenhuma geração foi iniciada.');json(res,200,quote);return;}
     if(path==='/api/provider/connect'){if(b.email&&(typeof b.email!=='string'||b.email.length>254||!/^\S+@\S+\.\S+$/.test(b.email.trim())))throw Error('Informe um email válido para identificar a conta.');
      assertAccountChange(user.id);if(String(b.label||'').length>80)throw Error('Nome da conta excede 80 caracteres.');
      if(typeof b.key!=='string'||b.key.length<10||b.key.length>1000||/[\r\n]/.test(b.key))throw Error('Cole a chave completa do console Higgsfield.');
@@ -358,7 +376,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      const input=generationInput(user,c,v,b.prompt,b.retrySourceId,b.resolution),prompt=input.prompt;if(prompt.length>10000)throw Error('O prompt completo tem '+prompt.length+' caracteres; o Genjutsu aceita até 10.000. Seu texto foi preservado. Revise antes de enviar; nenhuma geração foi iniciada.');
      if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND character_id=? AND json_extract(meta,'$.videoId')=? AND status IN ('uploading','submitting','queued','in_progress','uncertain')").get(user.id,c.id,v.id))throw Error('Este personagem já tem geração em andamento com este vídeo.');
      const quote=transport==='mcp'?mcp.consumeQuote(user.id,b.quoteId,mcpInput(c,v,b.prompt,b.withoutProject===true,input),Number(b.maxCredits)):null;
-     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,resolution:input.resolution,videoId:v.id,transport,snapshot:input,withoutProject:b.withoutProject===true,...(b.retrySourceId?{sourceJobId:b.retrySourceId}:{}),...(quote?{credits:quote.cost}:{})});
+     const j=newJob(user,'video',c.name,c.id,{duration:v.duration,resolution:input.resolution,videoId:v.id,transport,snapshot:input,withoutProject:b.withoutProject===true,...(b.retrySourceId?{sourceJobId:b.retrySourceId}:{}),...(quote?{credits:quote.cost,...(quote.parts?{expectedParts:quote.parts.length}:{})}:{})});
      launch(()=>quote?submitMcp(j,quote):submit(j,{references:input.references,videoId:v.id,prompt,resolution:input.resolution}));json(res,202,{id:j.id});return;
     }
     if(path==='/api/generate-images'){

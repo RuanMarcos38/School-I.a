@@ -288,3 +288,31 @@ test('gallery retains archived videos, preserves ownership and excludes trash an
   assert.equal(a.server.school.db.prepare('SELECT hidden FROM jobs WHERE id=?').get('archived').hidden,1);
  }finally{await a.close();}
 });
+
+function mockMcpParts(mock,{failSecond=false}={}){
+ const quotes=new Map();let serial=0,generated=0;return {
+  state:()=>({connected:true}),call:async()=>({credits:100}),claimBatch(){},
+  estimate:async(user,input)=>{const id='quote-'+(++serial);quotes.set(id,input);return {quoteId:id,credits:8,expires:Date.now()+600000};},
+  consumeQuote:(user,id,input,max)=>{assert.deepEqual(input,quotes.get(id));assert.equal(max,8);return {id,params:input,cost:8};},
+  generate:async(user,quote)=>{generated++;if(failSecond&&generated===2)throw Object.assign(Error('Second part refused'),{definitive:true});const url='https://mcp.example/'+quote.id;mock.uploads.set(url,readFileSync(quote.params.video.path));return mock.provider('/higgsfield/genjutsu/object-swap/v1.0','POST',{video_url:url,prompt:quote.params.prompt,resolution:quote.params.resolution});},
+  status:async(user,id)=>mock.provider('/requests/'+id+'/status'),get generated(){return generated;}
+ };
+}
+test('MCP 60-second video quotes both parts and returns one full result with audio',async()=>{
+ const source=join(fixtures,'mcp-60.mp4');await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-f','lavfi','-i','color=c=blue:s=640x640:r=10','-f','lavfi','-i','sine=frequency=440:sample_rate=44100','-t','60','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest',source],{timeout:60000,windowsHide:true,maxBuffer:1e6});
+ const mock=mockProvider(),mcp=mockMcpParts(mock),a=await instance({...mock,mcpGateway:mcp});try{
+ const p=await prepared(a),v=await a.upload(source,'video/mp4');
+ const estimate=await a.post('mcp/video-estimate',{characterId:p.character.id,videoId:v.id,resolution:'720p'});assert.equal(estimate.status,200,await estimate.clone().text());const q=await estimate.json();assert.equal(q.credits,16);assert.equal(mcp.generated,0);
+ const r=await a.post('generate',{characterId:p.character.id,videoId:v.id,resolution:'720p',transport:'mcp',quoteId:q.quoteId,maxCredits:16});assert.equal(r.status,202,await r.clone().text());const [j]=await settle(a);assert.equal(j.status,'completed',j.error);assert.equal(mcp.generated,2);assert.equal(j.outputs.length,1);assert.equal(j.meta.transport,'mcp');
+ const info=await inspectMedia(join(a.dataDir,'media',j.outputs[0]),'video/mp4');assert.ok(Math.abs(info.duration-60)<0.5,info.duration);
+ const streams=JSON.parse((await run(probe.path,['-v','error','-show_streams','-of','json',join(a.dataDir,'media',j.outputs[0])],{timeout:30000,windowsHide:true,maxBuffer:2e6})).stdout).streams;assert.ok(streams.some(s=>s.codec_type==='audio'));
+ assert.equal(a.server.school.db.prepare('SELECT count(*) n FROM billing_usage').get().n,0);
+ }finally{await a.close();}
+});
+test('MCP partial submission stays uncertain and never presents half a video as complete',async()=>{
+ const mock=mockProvider(),mcp=mockMcpParts(mock,{failSecond:true}),a=await instance({...mock,mcpGateway:mcp});try{
+ const p=await prepared(a),v=await a.upload(long,'video/mp4');const q=await (await a.post('mcp/video-estimate',{characterId:p.character.id,videoId:v.id})).json();
+ const r=await a.post('generate',{characterId:p.character.id,videoId:v.id,transport:'mcp',quoteId:q.quoteId,maxCredits:16});assert.equal(r.status,202);const [j]=await settle(a);assert.equal(j.status,'uncertain');assert.equal(j.result,null);assert.equal(mcp.generated,2);assert.equal(a.server.school.db.prepare('SELECT count(*) n FROM requests WHERE job_id=?').get(j.id).n,1);
+ const duplicate=await a.post('generate',{characterId:p.character.id,videoId:v.id,transport:'mcp',quoteId:q.quoteId,maxCredits:16});assert.equal(duplicate.status,400);assert.equal(mcp.generated,2);
+ }finally{await a.close();}
+});
