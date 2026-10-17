@@ -276,3 +276,15 @@ for(const duration of [56.8,60])test(`vídeo completo de ${duration} s mantém d
 
  }finally{await a.close();}
 });
+
+test('gallery retains archived videos, preserves ownership and excludes trash and non-video results',async()=>{
+ const a=await instance();try{
+  const owner=(await (await a.get('/api/state')).json()).user.id;
+  const insert=a.server.school.db.prepare('INSERT INTO jobs(id,user_id,kind,name,status,hidden,created,meta,outputs,result) VALUES(?,?,?,?,?,?,?,?,?,?)');
+  for(const [id,user,kind,status,hidden] of [['archived',owner,'video','completed',1],['visible',owner,'video','completed',0],['trash',owner,'video','completed',2],['failed',owner,'video','failed',0],['image',owner,'image','completed',1],['foreign','someone-else','video','completed',1]])insert.run(id,user,kind,id,status,hidden,new Date().toISOString(),JSON.stringify({snapshot:{promptText:'PRIVATE SNAPSHOT'}}),'[]','/media/'+id);
+  let state=await (await a.get('/api/state')).json();assert.deepEqual(state.gallery.map(j=>j.id).sort(),['archived','visible']);assert.ok(!state.jobs.some(j=>j.id==='archived'));assert.ok(!JSON.stringify(state.gallery).includes('PRIVATE SNAPSHOT'));
+  assert.equal((await a.post('favorite',{id:'archived',kind:'job'})).status,200);
+  state=await (await a.get('/api/state')).json();assert.equal(state.gallery.find(j=>j.id==='archived').favorite,true);
+  assert.equal(a.server.school.db.prepare('SELECT hidden FROM jobs WHERE id=?').get('archived').hidden,1);
+ }finally{await a.close();}
+});

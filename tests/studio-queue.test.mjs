@@ -41,3 +41,11 @@ for(const duration of [56.8,60])test(`studio permits a ${duration}s direct video
  await listeners.click({target:{closest:()=>({dataset:{action:'generate'}})}});
  assert.equal(payload.characterId,'c');assert.equal(payload.videoId,'v');assert.equal(payload.transport,'api');
 });
+
+test('gallery includes archived completed videos while the queue stays separate',()=>{
+ const {ui,elements,context}=studio();
+ vm.runInContext(`state.gallery=[{id:'archived',name:'Vídeo arquivado',kind:'video',created:0,status:'completed',hidden:1,meta:{},result:'/media/finished'}];`,context);
+ context.location.hash='#/galeria';ui.render();let html=elements.get('#app').innerHTML;
+ assert.match(html,/Vídeo arquivado/);assert.match(html,/Baixar/);assert.doesNotMatch(html,/data-action="hidejob"/);
+ context.location.hash='#/fila';ui.render();assert.ok(!elements.get('#app').innerHTML.includes('Vídeo arquivado'));
+});
