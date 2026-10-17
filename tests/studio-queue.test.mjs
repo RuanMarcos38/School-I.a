@@ -10,7 +10,7 @@ function studio(){
  const document={querySelector(s){if(!elements.has(s))elements.set(s,element());return elements.get(s);},querySelectorAll(){return [];},addEventListener(type,fn){listeners[type]=fn;},activeElement:null,createElement:element};
  const context=vm.createContext({document,window:{addEventListener(){}},location:{hash:'#/'},navigator:{},setTimeout(){},clearInterval(){},setInterval(){},Intl,console,generationLabel,mcpVideoIssue});
  const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').split('async function init()')[0];
- vm.runInContext(source+`;globalThis.testStudio={setup(){authInfo={user:{name:'Teste',admin:false}};state={characters:[{id:'c',name:'Personagem',images:[],description:''}],jobs:[{id:'old',name:'Vídeo anterior',kind:'video',created:0,status:'in_progress',meta:{}}],folders:[],provider:{configured:true},tools:{},connections:[]};selected='c';video={id:'v',name:'Base',duration:6,url:'/media/v'};},render,get(){return {video,busy,selected,customPromptText};},setApi(fn){api=fn;refresh=async()=>{};refreshBalance=()=>{};},disableRender(){render=()=>{};}};`,context);
+ vm.runInContext(source+`;globalThis.testStudio={configure(duration,character='c'){video={id:'v',name:'Base',duration,url:'/media/v'};selected=character;},issue:generationIssue,setup(){authInfo={user:{name:'Teste',admin:false}};state={characters:[{id:'c',name:'Personagem',images:[],description:''}],jobs:[{id:'old',name:'Vídeo anterior',kind:'video',created:0,status:'in_progress',meta:{}}],folders:[],provider:{configured:true},tools:{},connections:[]};selected='c';video={id:'v',name:'Base',duration:6,url:'/media/v'};},render,get(){return {video,busy,selected,customPromptText};},setApi(fn){api=fn;refresh=async()=>{};refreshBalance=()=>{};},disableRender(){render=()=>{};}};`,context);
  context.testStudio.setup();return {ui:context.testStudio,listeners,elements,context};
 }
 test('studio keeps processing cards in the queue and hides technical connection names',()=>{
@@ -27,4 +27,17 @@ test('accepted video clears only the submitted draft and permits another submiss
 test('failed submission preserves the draft for recovery',async()=>{
  const {ui,listeners}=studio();ui.setApi(async()=>{throw Error('Serviço indisponível');});ui.disableRender();
  await listeners.click({target:{closest:()=>({dataset:{action:'generate'}})}});assert.equal(ui.get().video.id,'v');assert.equal(ui.get().busy,false);
+});
+
+for(const duration of [56.8,60])test(`studio permits a ${duration}s direct video after character selection`,async()=>{
+ const {ui,elements,listeners}=studio();ui.configure(duration,null);ui.render();
+ assert.match(elements.get('#app').innerHTML,/Selecione um personagem na etapa 1/);
+ assert.match(elements.get('#app').innerHTML,/data-action="generate" disabled/);
+ await listeners.click({target:{closest:()=>({dataset:{action:'select',id:'c'}})}});
+ assert.equal(ui.issue(),'');const html=elements.get('#app').innerHTML;
+ assert.doesNotMatch(html,/data-action="generate" disabled/);
+ assert.match(html,/preservando a duração original/);
+ let payload;ui.setApi(async(path,body)=>{payload=body;return {id:'new'};});ui.disableRender();
+ await listeners.click({target:{closest:()=>({dataset:{action:'generate'}})}});
+ assert.equal(payload.characterId,'c');assert.equal(payload.videoId,'v');assert.equal(payload.transport,'api');
 });

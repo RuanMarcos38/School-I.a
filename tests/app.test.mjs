@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import sharp from 'sharp';
 import ffmpeg from 'ffmpeg-static';
+import probe from 'ffprobe-static';
 import {createApp} from '../server.mjs';
 import {run,inspectMedia,socialURL,concatenate,splitVideo} from '../lib/media.mjs';
 import {createVault} from '../lib/vault.mjs';
@@ -256,3 +257,22 @@ test('video output resolution is validated before uploads and reaches every API 
 test('failed jobs can be deleted and restored without removing shared media or exposing another user trash',async()=>{const a=await instance();try{const p=await prepared(a),db=a.server.school.db;for(const [id,status,owner] of [['trash-failed','failed','local-owner'],['trash-completed','completed','local-owner'],['trash-active','in_progress','local-owner'],['trash-foreign','failed','other']])db.prepare('INSERT INTO jobs(id,user_id,kind,name,status,created,meta,outputs) VALUES(?,?,?,?,?,?,?,?)').run(id,owner,'video',id,status,'2026-10-15',JSON.stringify({videoId:p.video.id}),JSON.stringify([p.video.id]));const bytes=readFileSync(join(a.dataDir,'media',p.video.id));assert.equal((await a.post('jobs/delete',{id:'trash-active'})).status,400);assert.equal((await a.post('jobs/delete',{id:'trash-completed'})).status,400);assert.equal((await a.post('jobs/delete',{id:'trash-foreign'})).status,400);assert.equal((await a.post('jobs/delete',{id:'trash-failed'})).status,200);assert.equal((await a.post('jobs/delete',{id:'trash-failed'})).status,200);assert.ok(!(await (await a.get('/api/state')).json()).jobs.some(j=>j.id==='trash-failed'));const trash=(await (await a.get('/api/jobs/trash')).json()).jobs;assert.deepEqual(trash.map(j=>j.id),['trash-failed']);assert.equal(trash[0].meta,undefined);assert.ok(readFileSync(join(a.dataDir,'media',p.video.id)).equals(bytes));assert.equal((await a.post('jobs/restore',{id:'trash-foreign'})).status,404);assert.equal((await a.post('jobs/restore',{id:'trash-failed'})).status,200);assert.ok((await (await a.get('/api/state')).json()).jobs.some(j=>j.id==='trash-failed'));assert.equal((await (await a.get('/api/jobs/trash')).json()).jobs.length,0);assert.equal(db.prepare('SELECT status FROM jobs WHERE id=?').get('trash-completed').status,'completed');}finally{await a.close();}});
 
 test('failure diagnosis only queries existing owned requests, preserves files and never resubmits a generation',async()=>{const mock=mockProvider(),a=await instance({...mock,provider:async(...args)=>args[0].endsWith('/status')?{status:'failed',error:{code:'INTERNAL_ERROR',message:'worker timeout https://private.example synthetic-secret'}}:mock.provider(...args)});try{await connect(a);const p=await prepared(a);const created=await a.post('generate',{characterId:p.character.id,videoId:p.video.id});const {id}=await created.json();await Promise.allSettled([...a.server.school.background]);a.server.school.db.prepare("UPDATE jobs SET status='failed' WHERE id=?").run(id);const count=mock.calls.filter(c=>c.path.includes('object-swap')).length;const result=await (await a.post('jobs/diagnostic',{id})).json();assert.equal(result.parts[0].code,'INTERNAL_ERROR');assert.match(result.parts[0].reason,/processamento falhou/);assert.ok(!JSON.stringify(result).includes('synthetic-secret'));assert.ok(!JSON.stringify(result).includes('https://'));assert.equal(mock.calls.filter(c=>c.path.includes('object-swap')).length,count);assert.equal((await a.post('jobs/diagnostic',{id:'not-owned'})).status,404);assert.equal((await a.get('/media/'+p.video.id)).status,200);assert.match((await (await a.get('/api/state')).json()).jobs.find(j=>j.id===id).error,/processamento falhou/);}finally{await a.close();}});
+
+for(const duration of [56.8,60])test(`vídeo completo de ${duration} s mantém duração e áudio após duas partes`,async()=>{
+ const source=join(fixtures,'boundary-'+duration+'.mp4');
+ await run(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-f','lavfi','-i','color=c=blue:s=640x640:r=10','-f','lavfi','-i','sine=frequency=440:sample_rate=44100','-t',String(duration),'-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest',source],{timeout:60000,windowsHide:true,maxBuffer:1e6});
+ const mock=mockProvider(),a=await instance(mock);
+ try{
+  await connect(a);const p=await prepared(a),video=await a.upload(source,'video/mp4');
+  const response=await a.post('generate',{characterId:p.character.id,videoId:video.id,resolution:'720p'});
+  assert.equal(response.status,202,await response.clone().text());
+  const [job]=await settle(a);assert.equal(job.status,'completed',job.error);
+  const parts=mock.calls.filter(c=>c.path.includes('object-swap'));assert.equal(parts.length,2);
+  const info=await inspectMedia(join(a.dataDir,'media',job.outputs[0]),'video/mp4');
+  assert.ok(Math.abs(info.duration-duration)<0.5,`Expected ${duration}, got ${info.duration}`);
+  const output=join(a.dataDir,'media',job.outputs[0]);
+  const streams=JSON.parse((await run(probe.path,['-v','error','-show_streams','-of','json',output],{timeout:30000,windowsHide:true,maxBuffer:2e6})).stdout).streams;
+  assert.ok(streams.some(stream=>stream.codec_type==='audio'),'Final video must retain its audio');
+
+ }finally{await a.close();}
+});
