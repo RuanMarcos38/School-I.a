@@ -13,3 +13,7 @@ Instalação/atualização: extrair o ZIP completo, carregar/recarregar a pasta 
 Validação automatizada cobre persistência, desconexão, acesso negado, remetentes inválidos, sessão expirada, cliques sintéticos e cache sem leitura de cookies. Importação real depende de instalação no perfil e de o Instagram aceitar a sessão no IP do servidor.
 
 Reversão: voltar ao commit f18dd9d65fbedb762517bbdf737a94477ffec9f4 e recarregar o pacote anterior da extensão. Não remover /app/data nem alterar variáveis ou credenciais.
+
+## Trecho obrigatório de até 60 segundos
+
+Importações por link (públicas ou autenticadas) e por referências Instagram usam automaticamente os primeiros 60 segundos quando a origem é maior. Vídeos de 4 a 60 segundos conservam sua duração. O recorte mantém o áudio, preserva as dimensões e é validado antes de salvar na conta. Arquivos temporários são removidos; o teto de 300 MB e os timeouts continuam ativos. Uploads de arquivo e gerações mantêm a validação existente de 4 a 60 segundos.
