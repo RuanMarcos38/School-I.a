@@ -222,7 +222,7 @@ test('authenticated Instagram import removes session and reuses the same link fo
  try{
   const cookies=[{domain:'.instagram.com',name:'sessionid',value:'synthetic-session',secure:true,httpOnly:true,path:'/',session:true}];
   assert.equal((await a.post('import-instagram-session',{url:'https://www.tiktok.com/x',cookies})).status,400);assert.equal(calls,0);
-  const r=await a.post('import-instagram-session',{url:'https://www.instagram.com/p/DeBwwYiIO-F/',cookies});assert.equal(r.status,201,await r.clone().text());const imported=await r.json();assert.equal(existsSync(cookiePath),false);assert.ok(!JSON.stringify(imported).includes('synthetic-session'));
+  const r=await a.post('import-instagram-session',{url:'https://www.instagram.com/p/DeBwwYiIO-F/',cookies});assert.equal(r.status,201,await r.clone().text());const imported=await r.json();assert.equal(existsSync(cookiePath),false);assert.ok(!JSON.stringify(imported).includes('synthetic-session'));const head=await fetch(a.base+imported.url,{method:'HEAD'});assert.equal(head.status,200);assert.equal(Number(head.headers.get('content-length')),readFileSync(join(a.dataDir,'media',imported.id)).length);assert.equal((await head.arrayBuffer()).byteLength,0);
   const again=await a.post('import-link',{url:'https://instagram.com/reel/DeBwwYiIO-F/?igsh=abc'});assert.equal(again.status,200);const cached=await again.json();assert.equal(cached.id,imported.id);assert.equal(cached.cached,true);assert.equal(calls,1);assert.equal((await a.get(cached.url+'?download=1')).status,200);
   assert.equal(a.server.school.db.prepare('SELECT COUNT(*) AS n FROM imported_links').get().n,1);
  }finally{await a.close();}

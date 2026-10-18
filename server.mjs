@@ -250,7 +250,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/jobs/trash'&&req.method==='GET'){json(res,200,{jobs:db.prepare('SELECT id,name,status,created FROM jobs WHERE user_id=? AND hidden=2 ORDER BY created DESC').all(user.id)});return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
    if(path==='/api/health'&&req.method==='GET'){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
-   if(path.startsWith('/media/')&&req.method==='GET'){
+   if(path.startsWith('/media/')&&['GET','HEAD'].includes(req.method)){
     const m=findMedia(path.slice(7),user.id);if(!m)throw error('Arquivo não encontrado.',404);
     streamMedia(req,res,join(dataDir,'media',m.id),m.type,{download:url.searchParams.has('download'),name:'school-'+m.id+'.'+(types[m.type]||'bin')});return;
    }
