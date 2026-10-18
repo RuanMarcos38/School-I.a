@@ -1,8 +1,8 @@
-import {requestJson} from '/request.js?v=20261017-4';
-import {mcpVideoIssue} from '/generation-validation.js?v=20261017-4';
-import {generationLabel} from '/video-cost.js?v=20261017-4';
-import {renderPlans,renderBillingAdmin,renderEmailAdmin} from '/billing.js?v=20261017-4';
-import {renderAdministration,paymentInput} from '/admin.js?v=20261017-4';
+import {requestJson} from '/request.js?v=20261017-5';
+import {mcpVideoIssue} from '/generation-validation.js?v=20261017-5';
+import {generationLabel} from '/video-cost.js?v=20261017-5';
+import {renderPlans,renderBillingAdmin,renderEmailAdmin} from '/billing.js?v=20261017-5';
+import {renderAdministration,paymentInput} from '/admin.js?v=20261017-5';
 const $=s=>document.querySelector(s),app=$('#app'),modal=$('#modal');
 let state={characters:[],jobs:[],folders:[],provider:{},tools:{}},authInfo=null,selected=null,video=null,filter='Todos',query='',folder='',queue='Rodando',galleryFavorite=false,compare=new Set(),busy=false,createBatch=null;
 let connectionMessage=null,refreshBusy=false;
@@ -42,7 +42,7 @@ function jobCard(j,checkbox=false){
  (j.result?(image?'<img class="result-image" src="'+esc(j.result)+'" alt="'+esc(j.name)+'">':'<video controls preload="metadata" src="'+esc(j.result)+'"></video>'):'<p class="muted">'+esc(friendlyMessage(j.error)||'Acompanhe o andamento da solicitação.')+'</p>')+
  '<div class="actions">'+(j.result?'<a class="button" href="'+esc(j.result)+'?download=1">Baixar</a><button data-action="jobfavorite" data-id="'+j.id+'" aria-label="Favoritar resultado">'+(j.favorite?'★':'☆')+'</button>':'')+
  (['queued','in_progress'].includes(j.status)&&j.meta.transport!=='mcp'?'<button data-action="cancel" data-id="'+j.id+'">Cancelar</button>':'')+
- (j.kind==='video'&&['failed','canceled'].includes(j.status)?'<button data-action="reusevideo" data-id="'+j.id+'">Reenviar vídeo</button>':'')+
+ (j.kind==='video'&&['failed','canceled','completed'].includes(j.status)?'<button data-action="reusevideo" data-id="'+j.id+'">Editar e reenviar</button>':'')+
  (['failed','canceled','nsfw'].includes(j.status)?'<button data-action="jobdiagnostic" data-id="'+j.id+'">Ver motivo</button>':'')+
  (['failed','canceled','nsfw'].includes(j.status)?'<button data-action="deletejob" data-id="'+j.id+'">Excluir</button>':'')+
  (j.status==='uncertain'?'<button data-action="reconcile" data-id="'+j.id+'">Vincular solicitação</button>':'')+
@@ -55,7 +55,7 @@ function render(){
  let signup=$('#higgsfield-signup');if(!signup){signup=document.createElement('a');signup.id='higgsfield-signup';signup.href=HIGGSFIELD_SIGN_UP;signup.target='_blank';signup.rel='noopener noreferrer sponsored';signup.textContent='Criar conta no Higgsfield ↗';document.querySelector('nav').append(signup);}
  let plansNav=$('#plans-nav');if(!plansNav){plansNav=document.createElement('a');plansNav.id='plans-nav';plansNav.href='#/planos';plansNav.textContent='Planos';document.querySelector('nav').append(plansNav);}
  if(signup.nextElementSibling)document.querySelector('nav').append(signup);
- drawBalance();if(retrySourceId){const source=state.jobs.find(j=>j.id===retrySourceId);if(!source||source.character_id!==selected||source.meta.videoId!==video?.id)retrySourceId=null;}
+ drawBalance();if(retrySourceId){const source=[...state.jobs,...(state.gallery||[])].find(j=>j.id===retrySourceId);if(!source||source.character_id!==selected||source.meta.videoId!==video?.id)retrySourceId=null;}
  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('hidden',authInfo.user.status==='pending'&&a.hash!=='#/planos'));
  const page=location.hash.slice(2)||'';
  if(authInfo.user.status==='pending'){app.innerHTML='<div class="settings"><p>Conclua o pagamento para liberar seu acesso. Se já pagou, aguarde a confirmação automática ou use Atualizar cobrança.</p><button data-action="logout">Sair</button></div>'+renderPlans(state.billing);return;}
@@ -143,8 +143,8 @@ document.addEventListener('click',async e=>{
  if(a==='adminpaymentstatus'){await api('admin/payment-status',{id,status:b.dataset.status});await loadAdmin();toast('Registro atualizado.');}
  if(a==='refreshbalance')await refreshBalance(true);
  if(a==='jobdiagnostic'){b.disabled=true;try{const result=await api('jobs/diagnostic',{id});showModal(head('Diagnóstico da solicitação')+'<p>'+esc(friendlyMessage(result.message))+'</p>'+result.parts.map(p=>'<section><h3>Parte '+p.part+' · '+esc(statusNames[p.status]||p.status)+'</h3><p>'+esc(friendlyMessage(p.reason))+'</p>'+(p.code?'<p class="muted">Código do provedor: '+esc(p.code)+'</p>':'')+'</section>').join(''));await refresh(true);}finally{b.disabled=false;}}
- if(a==='reusevideo'){retryPrepared=await api('jobs/reuse-video',{id});showModal(head('Preparar reenvio do vídeo')+'<p>O mesmo vídeo será carregado no Estúdio. Confira a conta Higgsfield e o prompt antes de clicar em Gerar. Um novo envio pode consumir saldo.</p><p class="muted">'+(retryPrepared.hasSnapshot?'O prompt e as referências originais foram preservados.':'Este envio antigo não guardou o prompt completo. Confira ou cole seu prompt; as referências atuais do personagem serão usadas.')+'</p><button data-action="applyretry" class="primary">Carregar vídeo no Estúdio</button>');}
- if(a==='applyretry'&&retryPrepared){selected=retryPrepared.characterId;video=retryPrepared.video;videoResolution=retryPrepared.resolution||'1080p';generationTransport=retryPrepared.transport;mcpWithoutProject=retryPrepared.withoutProject;if(retryPrepared.promptText!==null){customPromptText=retryPrepared.promptText;customPromptEnabled=!!customPromptText;}retrySourceId=retryPrepared.sourceId;mcpQuote=null;modal.close();location.hash='#/';render();toast('Vídeo preparado. Confira o prompt e a conta antes de gerar.');}
+ if(a==='reusevideo'){retryPrepared=await api('jobs/reuse-video',{id});showModal(head('Editar e reenviar vídeo')+'<p>Corrija as instruções abaixo e continue no Estúdio para revisar personagem, vídeo, resolução e conexão. O resultado anterior será preservado. Nenhuma geração é iniciada ao editar.</p><p class="muted">'+(retryPrepared.hasSnapshot?'As referências e o prompt do envio original foram recuperados.':'Este envio antigo não guardou o prompt completo. Cole suas instruções; as referências atuais do personagem serão usadas.')+'</p><label for="retry-prompt">CORRIGIR PROMPT</label><textarea id="retry-prompt" rows="12" placeholder="Deixe vazio para usar o prompt padrão">'+esc(retryPrepared.promptText||'')+'</textarea><p class="muted">Um novo envio pode consumir saldo. Na conta conectada, estime o custo novamente após corrigir.</p><button data-action="applyretry" class="primary">Aplicar correções no Estúdio</button>');}
+ if(a==='applyretry'&&retryPrepared){retryPrepared.promptText=$('#retry-prompt')?.value??retryPrepared.promptText;selected=retryPrepared.characterId;video=retryPrepared.video;videoResolution=retryPrepared.resolution||'1080p';generationTransport=retryPrepared.transport;mcpWithoutProject=retryPrepared.withoutProject;if(retryPrepared.promptText!==null){customPromptText=retryPrepared.promptText;customPromptEnabled=!!customPromptText;}retrySourceId=retryPrepared.sourceId;mcpQuote=null;modal.close();location.hash='#/';render();toast('Correções carregadas. Revise a conexão e o custo antes de gerar uma nova versão.');}
  if(a==='newfolder'||a==='renamefolder')showModal(head(a==='newfolder'?'Nova pasta':'Renomear pasta')+'<form id="folder-form" data-old="'+esc(a==='renamefolder'?value:'')+'"><input name="name" aria-label="Nome da pasta" maxlength="100" value="'+esc(a==='renamefolder'?value:'')+'" required><div class="actions"><button class="primary" type="submit">Salvar pasta</button></div></form>');
  if(a==='connect')connectForm();
  if(a==='archived'){const items=await api('archived');showModal(head('Personagens arquivados')+items.characters.map(c=>'<div class="jobhead"><span>'+esc(c.name)+'</span><button data-action="restorechar" data-id="'+c.id+'">Restaurar</button></div>').join('')+(items.characters.length?'':'<p class="muted">Nenhum personagem arquivado.</p>'));}

@@ -49,3 +49,14 @@ test('gallery includes archived completed videos while the queue stays separate'
  assert.match(html,/Vídeo arquivado/);assert.match(html,/Baixar/);assert.doesNotMatch(html,/data-action="hidejob"/);
  context.location.hash='#/fila';ui.render();assert.ok(!elements.get('#app').innerHTML.includes('Vídeo arquivado'));
 });
+
+test('completed gallery videos offer editing without submitting a new generation',async()=>{
+ const {ui,elements,context,listeners}=studio();vm.runInContext(`state.gallery=[{id:'done',name:'Vídeo concluído',kind:'video',created:0,status:'completed',hidden:1,meta:{},result:'/media/done'}];`,context);
+ context.location.hash='#/galeria';ui.render();assert.match(elements.get('#app').innerHTML,/Editar e reenviar/);
+ let calls=0;ui.setApi(async path=>{calls++;assert.equal(path,'jobs/reuse-video');return {sourceId:'done',characterId:'c',video:{id:'v',duration:6,url:'/media/v'},promptText:'Original',resolution:'720p',transport:'mcp',hasSnapshot:true};});
+ elements.get('#modal').showModal=()=>{};await listeners.click({target:{closest:()=>({dataset:{action:'reusevideo',id:'done'}})}});
+ assert.match(elements.get('#modal').innerHTML,/CORRIGIR PROMPT/);assert.match(elements.get('#modal').innerHTML,/Original/);assert.equal(calls,1);
+ context.document.querySelector('#retry-prompt').value='Corrected instructions';elements.get('#modal').close=()=>{};
+ await listeners.click({target:{closest:()=>({dataset:{action:'applyretry'}})}});
+ assert.equal(ui.get().customPromptText,'Corrected instructions');assert.equal(ui.get().video.id,'v');assert.equal(calls,1);
+});

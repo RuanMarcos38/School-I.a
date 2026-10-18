@@ -316,3 +316,13 @@ test('MCP partial submission stays uncertain and never presents half a video as 
  const duplicate=await a.post('generate',{characterId:p.character.id,videoId:v.id,transport:'mcp',quoteId:q.quoteId,maxCredits:16});assert.equal(duplicate.status,400);assert.equal(mcp.generated,2);
  }finally{await a.close();}
 });
+
+test('completed video can be edited and resubmitted without replacing its original result',async()=>{
+ const mock=mockProvider(),a=await instance(mock);try{
+ await connect(a);const p=await prepared(a);const source=await a.post('generate',{characterId:p.character.id,videoId:p.video.id,prompt:'Original instructions',resolution:'720p'});const id=(await source.json()).id;const [original]=await settle(a);assert.equal(original.status,'completed');
+ const count=mock.calls.filter(c=>c.path.includes('object-swap')).length;
+ const edit=await a.post('jobs/reuse-video',{id});assert.equal(edit.status,200);const draft=await edit.json();assert.equal(draft.promptText,'Original instructions');assert.equal(draft.resolution,'720p');assert.equal(mock.calls.filter(c=>c.path.includes('object-swap')).length,count);
+ const next=await a.post('generate',{characterId:draft.characterId,videoId:draft.video.id,retrySourceId:id,prompt:'Corrected instructions',resolution:'480p'});assert.equal(next.status,202,await next.clone().text());const newId=(await next.json()).id;const jobs=await settle(a);assert.equal(jobs.find(j=>j.id===id).result,original.result);assert.equal(jobs.find(j=>j.id===newId).meta.sourceJobId,id);assert.equal(jobs.find(j=>j.id===newId).status,'completed');assert.match(mock.calls.filter(c=>c.path.includes('object-swap')).at(-1).input.prompt,/Corrected instructions/);
+ assert.equal((await a.post('jobs/reuse-video',{id:'not-owned'})).status,400);
+ }finally{await a.close();}
+});
