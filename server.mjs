@@ -56,7 +56,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
  const notifications=createNotifications(db,vault,{request:emailFetch}),billing=createBilling(db,vault,{request:billingFetch,notify:notifications.enqueue});
- const usesCentral=userId=>billing.central().enabled&&!db.prepare('SELECT admin FROM users WHERE id=?').get(userId)?.admin;
+ const usesCentral=()=>false;
  const getKey=userId=>{if(usesCentral(userId))return billing.centralKey();return personalKey(userId);};
  const personalKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
@@ -215,6 +215,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function newJob(user,kind,name,characterId,meta){
   if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n>=8)throw Error('Aguarde as solicitações em andamento.');
   const j={id:randomUUID(),user_id:user.id,kind,name,character_id:characterId};
+  billing.requireAccess(user);
   const charge=usesCentral(user.id)&&meta?.transport!=='mcp';if(charge)billing.preflight(user,billing.cost(kind,meta||{}));
   db.exec('BEGIN IMMEDIATE');try{if(charge)billing.reserve(user,j.id,billing.cost(kind,meta||{}));
   db.prepare('INSERT INTO jobs(id,user_id,kind,name,character_id,status,created,meta) VALUES(?,?,?,?,?,?,?,?)').run(j.id,user.id,kind,name,characterId||null,'uploading',new Date().toISOString(),JSON.stringify({...meta,...(charge?{central:true,platformCredits:billing.cost(kind,meta||{})}:{})}));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
@@ -264,6 +265,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     return;
    }
    if(path.startsWith('/api/')&&req.method==='POST'){
+    if(['/api/generate','/api/generate-images','/api/generate-view','/api/mcp/video-estimate'].includes(path))billing.requireAccess(user);
     const promptRoute=['/api/generate','/api/generate-images','/api/characters','/api/mcp/video-estimate','/api/library/descriptions'].includes(path);
     const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:promptRoute?8*1024*1024:64*1024);
     if(path==='/api/billing/subscribe'){json(res,201,await billing.subscribe(user,b));return;}
