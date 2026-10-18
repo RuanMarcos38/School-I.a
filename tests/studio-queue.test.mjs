@@ -16,7 +16,7 @@ function studio(){
 }
 test('studio keeps processing cards in the queue and hides technical connection names',()=>{
  const {ui,elements,context}=studio();ui.render();let html=elements.get('#app').innerHTML;
- assert.ok(!html.includes('Vídeo anterior'));assert.match(html,/Abrir fila/);assert.doesNotMatch(html,/>[^<]*\b(?:API|MCP)\b/);
+ assert.ok(!html.includes('Vídeo anterior'));assert.match(html,/Acompanhe as solicitações na/);assert.doesNotMatch(html,/>[^<]*\b(?:API|MCP)\b/);
  context.location.hash='#/fila';ui.render();html=elements.get('#app').innerHTML;assert.match(html,/Vídeo anterior/);assert.match(html,/Processando/);
 });
 test('accepted video clears all fields and allows another submission while jobs keep running',async()=>{
@@ -46,7 +46,7 @@ test('completed video appears in Studio results and OK hides it only there after
  modal.close=()=>{modal.open=false;};
  await listeners.click({target:{closest:()=>({dataset:{action:'ackstudioresult',id:'studio-video-1'}})}});
  ui.render();html=elements.get('#app').innerHTML;
- assert.doesNotMatch(html,/Vídeo finalizado/);assert.deepEqual(ui.get().tracked,[]);
+ assert.doesNotMatch(html,/Vídeo finalizado/);assert.equal(ui.get().tracked.length,0);
  assert.equal(JSON.parse(storage.get('fieldsia:studio-results:local-owner')).length,0);
  context.location.hash='#/galeria';ui.render();assert.match(elements.get('#app').innerHTML,/Vídeo finalizado/);
 });
