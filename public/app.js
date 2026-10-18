@@ -64,7 +64,7 @@ function galleryCard(j){
  '<div class="gallery-item-content"><div class="gallery-title-row"><strong title="'+name+'">'+name+'</strong><button type="button" class="gallery-favorite'+(j.favorite?' is-favorite':'')+'" data-action="jobfavorite" data-id="'+id+'" aria-label="'+(j.favorite?'Remover dos favoritos':'Adicionar aos favoritos')+'" aria-pressed="'+(j.favorite?'true':'false')+'">'+(j.favorite?'★':'☆')+'</button></div>'+
  '<p class="gallery-date">'+esc(date)+(j.hidden?' · Arquivado':'')+'</p>'+
  '<div class="gallery-item-actions"><button class="gallery-watch" data-action="galleryplay" data-id="'+id+'">▶ Assistir</button><a class="gallery-download" href="'+src+'?download=1" download>↓ Baixar</a></div>'+
- '<div class="gallery-item-tools"><button data-action="reusevideo" data-id="'+id+'">Editar e reenviar</button>'+(!j.hidden?'<button data-action="hidejob" data-id="'+id+'">Arquivar</button>':'')+'</div>'+
+ '<div class="gallery-item-tools"><button data-action="reusevideo" data-id="'+id+'">Editar e reenviar</button>'+(!j.hidden?'<button data-action="hidejob" data-id="'+id+'">Arquivar</button>':'')+'<button data-action="confirmdeletevideo" data-id="'+id+'">Excluir</button></div>'+
  '<label class="gallery-compare"><input type="checkbox" data-compare="'+id+'" '+(compare.has(j.id)?'checked':'')+'><span>Selecionar para comparar</span></label></div></article>';
 }
 function studioResultsHtml(){
@@ -197,6 +197,8 @@ document.addEventListener('click',async e=>{
  if(a==='generateview'){b.disabled=true;await api('generate-view',{characterId:id,view:$('#view-angle').value});toast('Vista adicionada à fila.');modal.close();location.hash='#/fila';await refresh(true);}
  if(a==='saveoption'){const j=state.jobs.find(j=>j.id===id);const result=await api('characters',{name:j.name,description:j.meta.description,images:j.outputs});toast('Personagem salvo.');selected=result.id;modal.close();createBatch=null;await refresh(true);}
  if(a==='cancel'){b.disabled=true;toast((await api('cancel',{id})).message);}
+ if(a==='confirmdeletevideo'){const j=(state.gallery||[]).find(j=>j.id===id&&j.kind==='video'&&j.status==='completed');if(!j)throw Error('Vídeo não encontrado na Galeria.');showModal(head('Excluir vídeo da Galeria?')+'<p>O vídeo <strong>'+esc(j.name)+'</strong> será movido para a Lixeira. Você poderá restaurá-lo; o arquivo e o histórico serão preservados.</p><div class="actions"><button data-action="close">Cancelar</button><button data-action="deletegalleryvideo" data-id="'+esc(id)+'">Excluir vídeo</button></div>');}
+ if(a==='deletegalleryvideo'){await api('jobs/delete',{id});compare.delete(id);studioResultIds.delete(id);saveStudioResultIds();modal.close();await refresh(true);toast('Vídeo movido para a Lixeira da Fila. Você pode restaurá-lo.');}
  if(a==='deletejob'){await api('jobs/delete',{id});compare.delete(id);await refresh(true);toast('Item excluído. Você pode restaurá-lo na Lixeira da Fila.');}
  if(a==='trashjobs'){await showJobTrash();}
  if(a==='restorejob'){await api('jobs/restore',{id});await refresh(true);await showJobTrash();toast('Solicitação restaurada.');}

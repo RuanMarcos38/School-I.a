@@ -128,3 +128,20 @@ test('completed gallery videos offer editing without submitting a new generation
  await listeners.click({target:{closest:()=>({dataset:{action:'applyretry'}})}});
  assert.equal(ui.get().customPromptText,'Corrected instructions');assert.equal(ui.get().video.id,'v');assert.equal(calls,1);
 });
+
+test('gallery deletion requires confirmation and preserves the file until restored from trash',async()=>{
+ const {ui,elements,context,listeners}=studio();
+ vm.runInContext("state.gallery=[{id:'done',name:'Vídeo concluído',kind:'video',created:0,status:'completed',meta:{},result:'/media/done'}];",context);
+ context.location.hash='#/galeria';ui.render();
+ assert.match(elements.get('#app').innerHTML,/data-action="confirmdeletevideo"/);
+ const modal=elements.get('#modal');modal.showModal=()=>{modal.open=true;};modal.close=()=>{modal.open=false;};
+ const calls=[];ui.setApi(async(path,body)=>{calls.push({path,body});return {};});
+ await listeners.click({target:{closest:()=>({dataset:{action:'confirmdeletevideo',id:'done'}})}});
+ assert.equal(calls.length,0);assert.match(modal.innerHTML,/Lixeira/);assert.match(modal.innerHTML,/Cancelar/);
+ await listeners.click({target:{closest:()=>({dataset:{action:'close'}})}});
+ assert.equal(calls.length,0);
+ await listeners.click({target:{closest:()=>({dataset:{action:'confirmdeletevideo',id:'done'}})}});
+ await listeners.click({target:{closest:()=>({dataset:{action:'deletegalleryvideo',id:'done'}})}});
+ assert.equal(calls.length,1);assert.equal(calls[0].path,'jobs/delete');assert.equal(calls[0].body.id,'done');
+ assert.equal(modal.open,false);
+});

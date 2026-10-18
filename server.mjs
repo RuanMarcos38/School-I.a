@@ -416,7 +416,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     }
     if(path==='/api/jobs/delete'){
      const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);
-     if(!j||!['failed','canceled','nsfw'].includes(j.status))throw error('Somente solicitações com erro, recusadas ou canceladas podem ser excluídas.',400);
+     if(!j||!(['failed','canceled','nsfw'].includes(j.status)||j.kind==='video'&&j.status==='completed'))throw error('Somente vídeos concluídos ou solicitações com erro, recusadas ou canceladas podem ser excluídos.',400);
      if(db.prepare("SELECT id FROM requests WHERE job_id=? AND status IN ('queued','in_progress','materializing')").get(j.id))throw error('Aguarde a conclusão das partes em andamento antes de excluir.',400);
      db.prepare('UPDATE jobs SET hidden=2 WHERE id=? AND user_id=?').run(j.id,user.id);json(res,200,{ok:true});return;
     }
