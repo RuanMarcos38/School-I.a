@@ -1,3 +1,4 @@
+import {emptyJobTrash} from './lib/job-trash.mjs';
 import {providerFailure} from './lib/provider-failure.mjs';
 import {videoResolution} from './lib/video-settings.mjs';
 import {createNotifications} from './lib/notifications.mjs';
@@ -414,6 +415,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) VALUES(?,?,0,'queued')").run(b.requestId,j.id);
      db.prepare("UPDATE jobs SET status='queued',error=NULL,request_id=? WHERE id=?").run(b.requestId,j.id);json(res,200,{ok:true});return;
     }
+    if(path==='/api/jobs/trash/empty'){json(res,200,emptyJobTrash(db,user.id,b.ids,b.confirmation));return;}
     if(path==='/api/jobs/delete'){
      const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);
      if(!j||!(['failed','canceled','nsfw'].includes(j.status)||j.kind==='video'&&j.status==='completed'))throw error('Somente vídeos concluídos ou solicitações com erro, recusadas ou canceladas podem ser excluídos.',400);

@@ -145,3 +145,22 @@ test('gallery deletion requires confirmation and preserves the file until restor
  assert.equal(calls.length,1);assert.equal(calls[0].path,'jobs/delete');assert.equal(calls[0].body.id,'done');
  assert.equal(modal.open,false);
 });
+
+test('empty trash confirmation does not clear anything on cancel',async()=>{
+ const {ui,elements,listeners}=studio(),calls=[];
+ const modal=elements.get('#modal');modal.showModal=()=>{modal.open=true;};
+ ui.setApi(async(path)=>{calls.push(path);return {jobs:[{id:'old',name:'Vídeo',status:'completed',created:0}]};});
+ await listeners.click({target:{closest:()=>({dataset:{action:'confirmemptytrash'}})}});
+ assert.match(modal.innerHTML,/não poderão ser restaurados/);assert.match(modal.innerHTML,/Cancelar/);
+ assert.deepEqual(calls,['jobs/trash']);
+ await listeners.click({target:{closest:()=>({dataset:{action:'trashjobs'}})}});
+ assert.deepEqual(calls,['jobs/trash','jobs/trash']);assert.match(modal.innerHTML,/Esvaziar lixeira/);
+});
+test('empty trash sends only the confirmed snapshot and shows empty state',async()=>{
+ const {ui,elements,listeners}=studio(),calls=[];
+ const modal=elements.get('#modal');modal.showModal=()=>{modal.open=true;};
+ ui.setApi(async(path,body)=>{calls.push({path,body});return path==='jobs/trash/empty'?{count:1,ids:['old']}:{jobs:[]};});
+ await listeners.click({target:{closest:()=>({dataset:{action:'emptytrash',ids:'["old"]'}})}});
+ assert.equal(calls[0].path,'jobs/trash/empty');assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)),{ids:['old'],confirmation:'EMPTY_TRASH'});
+ assert.match(modal.innerHTML,/Sua lixeira está vazia/);assert.doesNotMatch(modal.innerHTML,/data-action="confirmemptytrash"/);
+});
