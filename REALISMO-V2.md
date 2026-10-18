@@ -7,6 +7,6 @@ Esta mudança acrescenta à orientação já existente uma prioridade explícita
 - **Roupa:** manter roupas e acessórios da fotografia de referência, exceto quando o usuário solicitar explicitamente outra vestimenta.
 - **Prompt personalizado:** a descrição salva do personagem passa a seguir junto do prompt da cena, não somente quando a cena está vazia.
 - **Limite:** continua a validação antes de gerar (10.000 caracteres no Genjutsu); o campo de edição não corta texto automaticamente e o contador contabiliza a descrição inserida. A foto continua sendo a fonte visual prioritária.
-- **Reversão:** HUMAN_REALISM_ENABLED=false restaura a composição anterior do prompt; não exige migração de dados.
+- **Reversão:** HUMAN_REALISM_ENABLED=false desativa a orientação compartilhada v2 e preserva o formato antigo de vídeos personalizados, sem migração de dados. As pequenas melhorias textuais em cards e vistas não são desligadas por essa chave; para revertê-las, reverter este commit em sua totalidade.
 
 Validação de código: testes unitários de identidade, cenário, textos extensos, contador e desativação. Ainda é necessário realizar uma geração REAL autorizada e comparar quadros, áudio e fidelidade visual antes de declarar qualidade final; prompts não garantem resultado perfeito e podem consumir créditos.
