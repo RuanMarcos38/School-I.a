@@ -87,6 +87,37 @@ test('gallery includes archived completed videos while the queue stays separate'
  context.location.hash='#/fila';ui.render();assert.ok(!elements.get('#app').innerHTML.includes('Vídeo arquivado'));
 });
 
+test('gallery displays cinematic posters with readable controls and keeps queue layout separate',()=>{
+ const {ui,elements,context}=studio();
+ vm.runInContext(`state.gallery=[
+  {id:'published',name:'Vídeo final de teste',kind:'video',created:'2026-10-17T23:00:00Z',status:'completed',meta:{},result:'/media/published',hidden:0,favorite:true},
+  {id:'archived',name:'Arquivo guardado',kind:'video',created:'2026-10-16T23:00:00Z',status:'completed',meta:{},result:'/media/archived',hidden:1,favorite:false}
+ ];`,context);
+ context.location.hash='#/galeria';ui.render();
+ const html=elements.get('#app').innerHTML;
+ assert.match(html,/gallery-page/);assert.match(html,/gallery-grid/);
+ assert.match(html,/gallery-poster/);assert.match(html,/Vídeo final de teste/);
+ assert.match(html,/gallery-item-actions/);assert.match(html,/data-action="galleryplay"/);
+ assert.match(html,/data-action="jobfavorite"/);assert.match(html,/data-action="reusevideo"/);
+ assert.match(html,/data-compare="published"/);assert.match(html,/data-action="hidejob"/);
+ assert.match(html,/Arquivado/);assert.match(html,/\/media\/published\?download=1/);
+ context.location.hash='#/fila';ui.render();
+ assert.doesNotMatch(elements.get('#app').innerHTML,/gallery-grid/);
+ assert.match(elements.get('#app').innerHTML,/Vídeo anterior/);
+});
+test('gallery opens the original video in a separate full playback dialog',async()=>{
+ const {ui,elements,context,listeners}=studio();
+ vm.runInContext("state.gallery=[{id:'play',name:'Filme completo',kind:'video',created:0,status:'completed',meta:{},result:'/media/complete'}];",context);
+ context.location.hash='#/galeria';ui.render();
+ const modal=elements.get('#modal');modal.showModal=()=>{modal.open=true;};
+ await listeners.click({target:{closest:()=>({dataset:{action:'galleryplay',id:'play'}})}});
+ assert.match(modal.innerHTML,/gallery-player/);
+ assert.match(modal.innerHTML,/video controls autoplay playsinline/);
+ assert.match(modal.innerHTML,/src="\/media\/complete"/);
+ assert.match(modal.innerHTML,/Baixar vídeo/);
+ assert.match(modal.innerHTML,/data-action="reusevideo"/);
+});
+
 test('completed gallery videos offer editing without submitting a new generation',async()=>{
  const {ui,elements,context,listeners}=studio();vm.runInContext(`state.gallery=[{id:'done',name:'Vídeo concluído',kind:'video',created:0,status:'completed',hidden:1,meta:{},result:'/media/done'}];`,context);
  context.location.hash='#/galeria';ui.render();assert.match(elements.get('#app').innerHTML,/Editar e reenviar/);
