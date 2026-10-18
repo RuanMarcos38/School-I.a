@@ -8,22 +8,59 @@ function studio(){
  const listeners={},elements=new Map();
  const element=()=>({innerHTML:'',textContent:'',style:{},classList:{toggle(){},remove(){},add(){}},setAttribute(){},addEventListener(){},append(){},remove(){},querySelector(){return element();},querySelectorAll(){return [];}});
  const document={querySelector(s){if(!elements.has(s))elements.set(s,element());return elements.get(s);},querySelectorAll(){return [];},addEventListener(type,fn){listeners[type]=fn;},activeElement:null,createElement:element};
- const context=vm.createContext({document,window:{addEventListener(){}},location:{hash:'#/'},navigator:{},setTimeout(){},clearInterval(){},setInterval(){},Intl,console,generationLabel,mcpVideoIssue});
+ const storage=new Map(),localStorage={getItem(key){return storage.get(key)||null;},setItem(key,value){storage.set(key,value);}};
+ const context=vm.createContext({document,window:{addEventListener(){}},location:{hash:'#/'},navigator:{},localStorage,setTimeout(){},clearInterval(){},setInterval(){},Intl,console,generationLabel,mcpVideoIssue});
  const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').split('async function init()')[0];
- vm.runInContext(source+`;globalThis.testStudio={configure(duration,character='c'){video={id:'v',name:'Base',duration,url:'/media/v'};selected=character;},issue:generationIssue,setup(){authInfo={user:{name:'Teste',admin:false}};state={characters:[{id:'c',name:'Personagem',images:[],description:''}],jobs:[{id:'old',name:'Vídeo anterior',kind:'video',created:0,status:'in_progress',meta:{}}],folders:[],provider:{configured:true},tools:{},connections:[]};selected='c';video={id:'v',name:'Base',duration:6,url:'/media/v'};},render,get(){return {video,busy,selected,customPromptText};},setApi(fn){api=fn;refresh=async()=>{};refreshBalance=()=>{};},disableRender(){render=()=>{};}};`,context);
- context.testStudio.setup();return {ui:context.testStudio,listeners,elements,context};
+ vm.runInContext(source+`;globalThis.testStudio={configure(duration,character='c'){video={id:'v',name:'Base',duration,url:'/media/v'};selected=character;},issue:generationIssue,setup(){authInfo={user:{name:'Teste',admin:false}};state={characters:[{id:'c',name:'Personagem',images:[],description:''}],jobs:[{id:'old',name:'Vídeo anterior',kind:'video',created:0,status:'in_progress',meta:{}}],folders:[],provider:{configured:true},tools:{},connections:[]};selected='c';video={id:'v',name:'Base',duration:6,url:'/media/v'};},render,get(){return {video,busy,selected,customPromptText,customPromptEnabled,tracked:[...studioResultIds]};},setApi(fn){api=fn;refresh=async()=>{};refreshBalance=()=>{};},disableRender(){render=()=>{};}};`,context);
+ context.testStudio.setup();return {ui:context.testStudio,listeners,elements,context,storage};
 }
 test('studio keeps processing cards in the queue and hides technical connection names',()=>{
  const {ui,elements,context}=studio();ui.render();let html=elements.get('#app').innerHTML;
  assert.ok(!html.includes('Vídeo anterior'));assert.match(html,/Abrir fila/);assert.doesNotMatch(html,/>[^<]*\b(?:API|MCP)\b/);
  context.location.hash='#/fila';ui.render();html=elements.get('#app').innerHTML;assert.match(html,/Vídeo anterior/);assert.match(html,/Processando/);
 });
-test('accepted video clears only the submitted draft and permits another submission while a job runs',async()=>{
- const {ui,listeners}=studio();let sends=0;ui.setApi(async path=>{assert.equal(path,'generate');sends++;return {id:'new'};});ui.disableRender();
+test('accepted video clears all fields and allows another submission while jobs keep running',async()=>{
+ const {ui,listeners,context,storage}=studio();let sends=0;ui.setApi(async path=>{assert.equal(path,'generate');sends++;return {id:'new-'+sends};});ui.disableRender();
+ vm.runInContext("customPromptEnabled=true;customPromptText='Replace the driver';retrySourceId='previous';",context);
  const button={dataset:{action:'generate'},disabled:false};await listeners.click({target:{closest:()=>button}});
- assert.equal(sends,1);assert.equal(ui.get().video,null);assert.equal(ui.get().busy,false);assert.equal(ui.get().selected,'c');
+ assert.equal(sends,1);assert.equal(ui.get().video,null);assert.equal(ui.get().busy,false);assert.equal(ui.get().selected,null);
+ assert.equal(ui.get().customPromptText,'');assert.equal(ui.get().customPromptEnabled,false);
+ assert.equal(vm.runInContext('retrySourceId',context),null);
+ assert.equal(ui.get().tracked[0],'new-1');
+ assert.match(storage.get('fieldsia:studio-results:local-owner'),/new-1/);
  ui.setup();await listeners.click({target:{closest:()=>button}});assert.equal(sends,2);
 });
+
+test('completed video appears in Studio results and OK hides it only there after download',async()=>{
+ const {ui,listeners,elements,context,storage}=studio();
+ ui.setApi(async path=>{assert.equal(path,'generate');return {id:'studio-video-1'};});ui.disableRender();
+ await listeners.click({target:{closest:()=>({dataset:{action:'generate'},disabled:false})}});
+ vm.runInContext("state.gallery=[{id:'studio-video-1',name:'Vídeo finalizado',kind:'video',created:1,status:'completed',meta:{},result:'/media/final'}];",context);
+ ui.render();let html=elements.get('#app').innerHTML;
+ assert.match(html,/Vídeo finalizado/);assert.match(html,/data-action="studiodownload"/);
+ assert.match(html,/\/media\/final\?download=1/);assert.match(html,/Acompanhe as solicitações|Resultados/);
+ const modal=elements.get('#modal');modal.showModal=()=>{modal.open=true;};
+ await listeners.click({target:{closest:()=>({dataset:{action:'studiodownload',id:'studio-video-1'}})}});
+ assert.match(modal.innerHTML,/OK · limpar tela/);
+ assert.match(modal.innerHTML,/Galeria/);
+ modal.close=()=>{modal.open=false;};
+ await listeners.click({target:{closest:()=>({dataset:{action:'ackstudioresult',id:'studio-video-1'}})}});
+ ui.render();html=elements.get('#app').innerHTML;
+ assert.doesNotMatch(html,/Vídeo finalizado/);assert.deepEqual(ui.get().tracked,[]);
+ assert.equal(JSON.parse(storage.get('fieldsia:studio-results:local-owner')).length,0);
+ context.location.hash='#/galeria';ui.render();assert.match(elements.get('#app').innerHTML,/Vídeo finalizado/);
+});
+
+test('studio only shows its own tracked completed result and keeps other jobs intact',async()=>{
+ const {ui,listeners,elements,context}=studio();
+ ui.setApi(async()=>({id:'fresh-id'}));ui.disableRender();
+ await listeners.click({target:{closest:()=>({dataset:{action:'generate'}})}});
+ vm.runInContext("state.gallery=[{id:'other-user-session',name:'Histórico antigo',kind:'video',status:'completed',meta:{},created:1,result:'/media/old'},{id:'fresh-id',name:'Resultado atual',kind:'video',status:'completed',meta:{},created:2,result:'/media/new'}];",context);
+ ui.render();const html=elements.get('#app').innerHTML;
+ assert.match(html,/Resultado atual/);assert.doesNotMatch(html,/Histórico antigo/);
+ context.location.hash='#/galeria';ui.render();assert.match(elements.get('#app').innerHTML,/Histórico antigo/);
+});
+
 test('failed submission preserves the draft for recovery',async()=>{
  const {ui,listeners}=studio();ui.setApi(async()=>{throw Error('Serviço indisponível');});ui.disableRender();
  await listeners.click({target:{closest:()=>({dataset:{action:'generate'}})}});assert.equal(ui.get().video.id,'v');assert.equal(ui.get().busy,false);
