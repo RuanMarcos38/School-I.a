@@ -1,3 +1,4 @@
+import {emptyJobTrash} from './lib/job-trash.mjs';
 import {providerFailure} from './lib/provider-failure.mjs';
 import {videoResolution} from './lib/video-settings.mjs';
 import {createNotifications} from './lib/notifications.mjs';
@@ -55,7 +56,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function assertAccountChange(user){if(billing.central().enabled&&billing.central().ownerId===user&&db.prepare("SELECT id FROM jobs WHERE status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get())throw Error('Há gerações usando a API central. Aguarde antes de trocar a chave.');if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress','assembling','uncertain')").get(user))throw Error('Aguarde ou resolva as gerações pendentes antes de trocar a conta.');}
  const balance=createBalanceReader({identity:user=>mcp.state(user).connected?connections.list(user).find(p=>p.kind==='mcp'&&p.active):null,read:user=>mcp.call(user,'balance')});
  const notifications=createNotifications(db,vault,{request:emailFetch}),billing=createBilling(db,vault,{request:billingFetch,notify:notifications.enqueue});
- const usesCentral=userId=>billing.central().enabled&&!db.prepare('SELECT admin FROM users WHERE id=?').get(userId)?.admin;
+ const usesCentral=()=>false;
  const getKey=userId=>{if(usesCentral(userId))return billing.centralKey();return personalKey(userId);};
  const personalKey=userId=>{if(!connections.isEnabled(userId,'api'))return ''; const s=db.prepare('SELECT credential FROM settings WHERE user_id=?').get(userId);return s?.credential?vault.decrypt(s.credential):process.env.HF_API_KEY||'';};
  const call=(userId,path,method,input)=>customProvider?customProvider(path,method,input,{key:getKey(userId),userId}):createProvider(()=>getKey(userId))(path,method,input);
@@ -74,7 +75,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
   const jobs=db.prepare('SELECT * FROM jobs WHERE user_id=? AND hidden=0 ORDER BY created DESC').all(user.id).map(presentJob);
   const gallery=db.prepare("SELECT * FROM jobs WHERE user_id=? AND kind='video' AND status='completed' AND hidden IN (0,1) ORDER BY created DESC").all(user.id).map(presentJob);
   const setting=db.prepare('SELECT verified FROM settings WHERE user_id=?').get(user.id);
-  return {billing:billing.summary(user),testMode,connections:usesCentral(user.id)?[]:connections.list(user.id),mcp:usesCentral(user.id)?{connected:false}:mcp.state(user.id),user:auth.safe(user),characters,jobs,gallery,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{central:usesCentral(user.id),configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL,videoPromptLimit:10000,videoPromptOverhead:videoPrompt('','x').length-1},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
+  return {billing:billing.summary(user),testMode,connections:usesCentral(user.id)?[]:connections.list(user.id),mcp:usesCentral(user.id)?{connected:false}:mcp.state(user.id),user:auth.safe(user),characters,jobs,gallery,folders:db.prepare('SELECT name FROM user_folders WHERE user_id=? ORDER BY name').all(user.id).map(f=>f.name),provider:{central:usesCentral(user.id),configured:!!getKey(user.id),verified:setting?.verified||null,videoModel:VIDEO_MODEL,imageModel:IMAGE_MODEL,videoPromptLimit:10000,videoPromptOverhead:videoPrompt('','x').length-1,videoPromptDescriptionOverhead:videoPrompt('d','x').length-videoPrompt('','x').length},tools:{...toolsReady(),importer:existsSync(process.env.YTDLP_PATH||join(root,'vendor',process.platform==='win32'?'yt-dlp.exe':'yt-dlp'))}};
  }
 
  function retryRecord(user,id){const j=db.prepare("SELECT * FROM jobs WHERE id=? AND user_id=? AND kind='video'").get(id,user.id);if(!j||!['failed','canceled','completed'].includes(j.status))throw Error('Somente vídeos concluídos, com falha ou cancelados podem ser preparados para edição e novo envio.');const parts=db.prepare('SELECT status FROM requests WHERE job_id=?').all(j.id);if(parts.some(p=>['queued','in_progress','materializing','nsfw'].includes(p.status)||p.status==='completed'&&j.status!=='completed'))throw Error('Há partes em andamento, concluídas ou recusadas. Confira o provedor antes de repetir a geração.');const meta=JSON.parse(j.meta);if(db.prepare("SELECT id FROM jobs WHERE user_id=? AND status='nsfw' AND json_extract(meta,'$.videoId')=?").get(user.id,meta.videoId))throw Error('Este vídeo foi recusado pelo provedor. Escolha outro material.');return {job:j,meta};}
@@ -214,6 +215,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
  function newJob(user,kind,name,characterId,meta){
   if(db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND status IN ('uploading','submitting','queued','in_progress')").get(user.id).n>=8)throw Error('Aguarde as solicitações em andamento.');
   const j={id:randomUUID(),user_id:user.id,kind,name,character_id:characterId};
+  billing.requireAccess(user);
   const charge=usesCentral(user.id)&&meta?.transport!=='mcp';if(charge)billing.preflight(user,billing.cost(kind,meta||{}));
   db.exec('BEGIN IMMEDIATE');try{if(charge)billing.reserve(user,j.id,billing.cost(kind,meta||{}));
   db.prepare('INSERT INTO jobs(id,user_id,kind,name,character_id,status,created,meta) VALUES(?,?,?,?,?,?,?,?)').run(j.id,user.id,kind,name,characterId||null,'uploading',new Date().toISOString(),JSON.stringify({...meta,...(charge?{central:true,platformCredits:billing.cost(kind,meta||{})}:{})}));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
@@ -249,7 +251,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
    if(path==='/api/jobs/trash'&&req.method==='GET'){json(res,200,{jobs:db.prepare('SELECT id,name,status,created FROM jobs WHERE user_id=? AND hidden=2 ORDER BY created DESC').all(user.id)});return;}
    if(path==='/api/archived'&&req.method==='GET'){json(res,200,{characters:db.prepare('SELECT id,name FROM characters WHERE user_id=? AND deleted=1 ORDER BY name').all(user.id)});return;}
    if(path==='/api/health'&&req.method==='GET'){if(!user.admin)throw error('Acesso exclusivo do administrador.',403);json(res,200,{database:db.prepare('PRAGMA integrity_check').get().integrity_check==='ok',...state(user).tools,providerConfigured:!!getKey(user.id)});return;}
-   if(path.startsWith('/media/')&&req.method==='GET'){
+   if(path.startsWith('/media/')&&['GET','HEAD'].includes(req.method)){
     const m=findMedia(path.slice(7),user.id);if(!m)throw error('Arquivo não encontrado.',404);
     streamMedia(req,res,join(dataDir,'media',m.id),m.type,{download:url.searchParams.has('download'),name:'school-'+m.id+'.'+(types[m.type]||'bin')});return;
    }
@@ -263,6 +265,7 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
     return;
    }
    if(path.startsWith('/api/')&&req.method==='POST'){
+    if(['/api/generate','/api/generate-images','/api/generate-view','/api/mcp/video-estimate'].includes(path))billing.requireAccess(user);
     const promptRoute=['/api/generate','/api/generate-images','/api/characters','/api/mcp/video-estimate','/api/library/descriptions'].includes(path);
     const b=await body(req,path==='/api/library/import'&&user.admin?40*1024*1024:promptRoute?8*1024*1024:64*1024);
     if(path==='/api/billing/subscribe'){json(res,201,await billing.subscribe(user,b));return;}
@@ -414,9 +417,10 @@ export function createApp({dataDir=process.env.DATA_DIR||join(root,'data'),provi
      db.prepare("INSERT OR IGNORE INTO requests(id,job_id,part,status) VALUES(?,?,0,'queued')").run(b.requestId,j.id);
      db.prepare("UPDATE jobs SET status='queued',error=NULL,request_id=? WHERE id=?").run(b.requestId,j.id);json(res,200,{ok:true});return;
     }
+    if(path==='/api/jobs/trash/empty'){json(res,200,emptyJobTrash(db,user.id,b.ids,b.confirmation));return;}
     if(path==='/api/jobs/delete'){
      const j=db.prepare('SELECT * FROM jobs WHERE id=? AND user_id=?').get(b.id,user.id);
-     if(!j||!['failed','canceled','nsfw'].includes(j.status))throw error('Somente solicitações com erro, recusadas ou canceladas podem ser excluídas.',400);
+     if(!j||!(['failed','canceled','nsfw'].includes(j.status)||j.kind==='video'&&j.status==='completed'))throw error('Somente vídeos concluídos ou solicitações com erro, recusadas ou canceladas podem ser excluídos.',400);
      if(db.prepare("SELECT id FROM requests WHERE job_id=? AND status IN ('queued','in_progress','materializing')").get(j.id))throw error('Aguarde a conclusão das partes em andamento antes de excluir.',400);
      db.prepare('UPDATE jobs SET hidden=2 WHERE id=? AND user_id=?').run(j.id,user.id);json(res,200,{ok:true});return;
     }
