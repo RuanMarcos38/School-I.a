@@ -5,7 +5,7 @@ if(!extensionReady){
  button.hidden=true;document.querySelector('#installation').hidden=false;
  status.textContent='Este arquivo foi aberto fora da extensão. Instale a pasta no Chrome e use o ícone Fields IA na barra de extensões. Nenhuma sessão foi acessada ou enviada.';
 }else{
-const revoke=()=>chrome.permissions.remove(ACCESS);
+const revoke=async()=>{let state;try{state=await chrome.runtime.sendMessage({type:'CONNECTION_STATUS'});}catch{}if(!state?.connected)await chrome.permissions.remove(ACCESS);};
 window.addEventListener('pagehide',()=>{void revoke().catch(()=>{});});
 button.addEventListener('click',async()=>{
  button.disabled=true;let cookies=[];

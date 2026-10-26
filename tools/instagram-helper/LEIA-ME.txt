@@ -1,14 +1,17 @@
-FIELDS IA - IMPORTAÇÃO TEMPORÁRIA - 1.0.1
+FIELDS IA - INSTAGRAM CONECTADO - 1.1.0
 
-Não abra popup.html diretamente. Ele precisa dos recursos de uma extensão instalada.
+CONFIGURAÇÃO ÚNICA NESTE PERFIL DO CHROME
+1. Extraia todos os arquivos deste ZIP para uma pasta fixa. Não abra popup.html diretamente.
+2. Abra chrome://extensions no Chrome. Se o assistente já existe, substitua os arquivos da pasta e clique em Recarregar.
+3. Para instalar: ative Modo do desenvolvedor, clique Carregar sem compactação e selecione a pasta que contém manifest.json.
+4. Abra Fields IA - Instagram conectado no botão de Extensões do Chrome.
+5. Clique Manter conectado neste Chrome e autorize o acesso solicitado.
+6. Entre no Instagram no mesmo perfil do Chrome. Recarregue o Fields IA.
+7. Cole um link Instagram no Estúdio e clique Baixar. Não é necessário abrir o assistente novamente.
 
-1. Extraia este ZIP inteiro para uma pasta.
-2. Digite chrome://extensions na barra de endereço do Chrome e pressione Enter.
-3. Ative Modo do desenvolvedor.
-4. Clique Carregar sem compactação e selecione a pasta que contém manifest.json.
-5. Abra o Fields IA e cole o link em Vídeo base.
-6. Pelo botão de Extensões (peça de quebra-cabeça), abra Fields IA - Importação temporária.
-7. Confirme Autorizar e importar uma vez.
-
-Se já estiver instalado, substitua os arquivos da pasta e use Recarregar no cartão da extensão em chrome://extensions.
-Nenhuma chave API ou cookie está incluído neste pacote. Permissões e sessão temporárias seguem o fluxo existente.
+A autorização permanece entre reinicializações do Chrome. Desconectar Instagram no assistente revoga o acesso.
+Se o Instagram encerrar sua sessão, entre novamente no Instagram. Isso não exige reinstalar o assistente.
+Somente sessionid, csrftoken e ds_user_id são lidos ao importar. A extensão não salva esses cookies.
+O servidor Fields IA remove a sessão ao terminar o download. O vídeo importado fica salvo na sua conta.
+O modo Autorizar e importar uma vez continua disponível sem conexão persistente.
+Nenhuma senha, chave ou cookie está incluído no pacote.
